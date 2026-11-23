@@ -1,0 +1,6 @@
+{
+  "name": "LOOP — GNN Compiler Optimization & Notebook Provenance Platform",
+  "description": "Full-stack capstone platform combining Graph Neural Network loop detection and single-forward-pass LOOP compiler optimization with reproducible notebook provenance and scheduled pipeline execution.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
