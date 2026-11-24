@@ -18,6 +18,7 @@ import {
   executeFaultInjectionTest,
   parseNotebookContent,
 } from './engine.ts';
+import { ARTIFACT_URI_PREFIX, CONTAINER_IMAGE_PINNED, CONTAINER_REGISTRY, DATASET_URI_PREFIX, OPENLINEAGE_ENDPOINT, WORKSPACE_FILE } from '../src/constants.ts';
 
 const NB_1_JSON = JSON.stringify({
   metadata: { kernelspec: { name: 'python3' }, language_info: { version: '3.12.7' } },
@@ -43,7 +44,7 @@ const NB_1_JSON = JSON.stringify({
         'import pandas as pd\n',
         'import pyarrow\n',
         'import openlineage\n\n',
-        'df = pd.read_parquet(f"s3://cloud39-datasets/raw/{cohort_source}")\n',
+        `df = pd.read_parquet(f"${DATASET_URI_PREFIX}/{cohort_source}")\n`,
         'assert df.isna().mean().max() <= null_threshold\n',
         'df.to_parquet("cleaned_cohort.parquet", index=False)\n',
       ],
@@ -161,7 +162,7 @@ export function buildSeedData(): {
     description: 'End-to-end 3-step Papermill DAG turning exploratory cohort notebooks into a scheduled, lineage-tracked production pipeline.',
     version: 'v1.4.0',
     environmentSpec: {
-      baseImage: 'ghcr.io/cloud39/notebook-runner:py312-pinned',
+      baseImage: CONTAINER_IMAGE_PINNED,
       pythonVersion: '3.12.7',
       cpuRequest: '4 vCPU',
       memoryRequest: '8 GiB',
@@ -387,7 +388,7 @@ export function buildSeedData(): {
     executeFaultInjectionTest(code)
   );
 
-  // KPI-1..KPI-6 from CLOUD-39 Project Charter
+  // KPI-1..KPI-6 from NoteOps Project Charter
   const kpis: KpiSnapshot[] = [
     {
       id: 'KPI-1',
@@ -495,9 +496,9 @@ export function buildSeedData(): {
   ];
 
   const settings: WorkspaceSettings = {
-    artifactStorageUri: 's3://cloud39-artifacts',
-    containerRegistry: 'ghcr.io/cloud39/notebook-runner',
-    openLineageEndpoint: 'http://marquez.cloud39.internal:5000/api/v1/lineage',
+    artifactStorageUri: ARTIFACT_URI_PREFIX,
+    containerRegistry: CONTAINER_REGISTRY,
+    openLineageEndpoint: OPENLINEAGE_ENDPOINT,
     defaultTimeoutSec: 180,
     enforceStrictLockMatch: true,
     autoFailClosedOnDrift: true,
@@ -519,7 +520,7 @@ export function buildSeedData(): {
 export const CAPSTONE_DOCUMENTS: CapstoneDocument[] = [
   {
     id: 'doc_spec',
-    title: 'CLOUD-39 Official Capstone Charter & Specification',
+    title: 'NoteOps Official Capstone Charter & Specification',
     subtitle: 'KL University · O1–O5 Gates, AC-1..AC-4, KPI-1..KPI-6 Contract',
     url: '/assets/aistudio/capstone_project_details_1b064970.pdf',
   },

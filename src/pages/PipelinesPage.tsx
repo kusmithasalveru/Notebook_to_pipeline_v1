@@ -4,6 +4,7 @@ import { DagCanvas, type DagNodeItem } from '../components/visualization/DagCanv
 import { api } from '../services/api';
 import { useAppStore } from '../store/useAppStore';
 import type { NotebookRecord, PipelineDefinition, PipelineEdge, PipelineStep } from '../types/domain';
+import { CONTAINER_IMAGE_PINNED } from '../constants';
 
 export function PipelinesPage() {
   const [pipelines, setPipelines] = useState<PipelineDefinition[]>([]);
@@ -12,7 +13,7 @@ export function PipelinesPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [envSpec, setEnvSpec] = useState({
-    baseImage: 'ghcr.io/cloud39/notebook-runner:py312-pinned',
+    baseImage: CONTAINER_IMAGE_PINNED,
     pythonVersion: '3.12.7',
     cpuRequest: '4 vCPU',
     memoryRequest: '8 GiB',
@@ -252,10 +253,10 @@ export function PipelinesPage() {
 
       {/* Bottom Split: Selected Step Parameters + Pipeline Environment Spec */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <div className="xl:col-span-7 rounded-xl border border-slate-200 dark:border-[#1E3A5F] bg-white dark:bg-[#132238] p-5 space-y-4">
+        <div className="xl:col-span-7 rounded-xl border border-slate-200 dark:border-[#1E3A5F] bg-white dark:bg-[#132238] p-5 space-y-4 flex flex-col min-h-[340px]">
           {selectedStep ? (
             <>
-              <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-[#1E3A5F] pb-3">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-[#1E3A5F] pb-3 shrink-0">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                     Step Configuration — {selectedStep.name}
@@ -267,14 +268,14 @@ export function PipelinesPage() {
                 <button
                   type="button"
                   onClick={() => handleRemoveStep(selectedStep.id)}
-                  className="inline-flex items-center gap-1 text-xs text-rose-500 hover:underline"
+                  className="inline-flex items-center gap-1 text-xs text-rose-500 hover:underline shrink-0"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Remove Step</span>
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1 overflow-y-auto pr-2">
                 {Object.entries(selectedStep.parameters).map(([k, v]) => (
                   <div key={k}>
                     <label className="block text-xs font-mono text-slate-600 dark:text-slate-300 mb-1">

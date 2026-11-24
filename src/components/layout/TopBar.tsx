@@ -1,66 +1,67 @@
 import { Play } from 'lucide-react';
 import { type NavSection, useAppStore } from '../../store/useAppStore';
+import { APP_NAME } from '../../constants.ts';
 
 const SECTION_META: Record<
   NavSection,
   { breadcrumb: string; title: string; primaryActionLabel: string; primaryTarget: NavSection }
 > = {
   dashboard: {
-    breadcrumb: 'CLOUD-39 / Dashboard',
+    breadcrumb: `${APP_NAME} / Dashboard`,
     title: 'Reproducible Pipeline Studio',
     primaryActionLabel: 'Build Pipeline',
     primaryTarget: 'pipelines',
   },
   notebooks: {
-    breadcrumb: 'CLOUD-39 / Authoring / Notebooks',
+    breadcrumb: `${APP_NAME} / Authoring / Notebooks`,
     title: 'Notebook Ingestion & Parameter Detection',
     primaryActionLabel: 'Compose DAG',
     primaryTarget: 'pipelines',
   },
   pipelines: {
-    breadcrumb: 'CLOUD-39 / Authoring / Pipelines',
+    breadcrumb: `${APP_NAME} / Authoring / Pipelines`,
     title: 'Pipeline DAG Builder',
     primaryActionLabel: 'Manage Schedules',
     primaryTarget: 'schedules',
   },
   schedules: {
-    breadcrumb: 'CLOUD-39 / Orchestration / Schedules',
+    breadcrumb: `${APP_NAME} / Orchestration / Schedules`,
     title: 'Cron & Interval Triggers',
     primaryActionLabel: 'Inspect Runs',
     primaryTarget: 'runs',
   },
   runs: {
-    breadcrumb: 'CLOUD-39 / Orchestration / Runs',
+    breadcrumb: `${APP_NAME} / Orchestration / Runs`,
     title: 'Pipeline Run History & Live Logs',
     primaryActionLabel: 'Reproduce Run',
     primaryTarget: 'reproduction',
   },
   lineage: {
-    breadcrumb: 'CLOUD-39 / Provenance / Lineage',
+    breadcrumb: `${APP_NAME} / Provenance / Lineage`,
     title: 'OpenLineage Provenance Graph',
     primaryActionLabel: 'Reproduce Run',
     primaryTarget: 'reproduction',
   },
   reproduction: {
-    breadcrumb: 'CLOUD-39 / Provenance / Reproduction',
+    breadcrumb: `${APP_NAME} / Provenance / Reproduction`,
     title: 'Historical Run Reproduction & Diff Engine',
     primaryActionLabel: 'Fault Injection',
     primaryTarget: 'fault-injection',
   },
   'fault-injection': {
-    breadcrumb: 'CLOUD-39 / Assurance / Fault Injection',
+    breadcrumb: `${APP_NAME} / Assurance / Fault Injection`,
     title: 'Negative Testing & Recovery (NT-1..NT-5)',
     primaryActionLabel: 'View KPI Contract',
     primaryTarget: 'kpi',
   },
   kpi: {
-    breadcrumb: 'CLOUD-39 / Assurance / KPI & Acceptance',
+    breadcrumb: `${APP_NAME} / Assurance / KPI & Acceptance`,
     title: 'KPI-1..KPI-6 & Acceptance Gates (AC-1..AC-4)',
     primaryActionLabel: 'View Runs',
     primaryTarget: 'runs',
   },
   settings: {
-    breadcrumb: 'CLOUD-39 / System / Settings',
+    breadcrumb: `${APP_NAME} / System / Settings`,
     title: 'Runtime & Provenance Configuration',
     primaryActionLabel: 'Back to Dashboard',
     primaryTarget: 'dashboard',

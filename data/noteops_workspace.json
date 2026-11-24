@@ -1,0 +1,2807 @@
+{
+  "users": [],
+  "notebooks": [
+    {
+      "id": "nb_ingest_cohort",
+      "name": "01_ingest_clinical_cohort.ipynb",
+      "description": "Ingests raw cohort data, enforces partition schema validation, and writes checksummed parquet.",
+      "kernelName": "python3",
+      "pythonVersionHint": "3.12.7",
+      "owner": "Salveru Kusmitha",
+      "uploadedAt": "2026-11-23T18:56:41.992Z",
+      "checksum": "sha256:091286cc15fd20f1",
+      "cells": [
+        {
+          "id": "cell_1",
+          "index": 0,
+          "cellType": "markdown",
+          "isParameterCell": false,
+          "executionCount": 1,
+          "source": "# 01 — Clinical Cohort Ingestion & Schema Validation\nLoads raw cohort records, validates non-null partition contracts, and emits a hashed parquet artifact."
+        },
+        {
+          "id": "cell_2",
+          "index": 1,
+          "cellType": "code",
+          "isParameterCell": true,
+          "executionCount": 1,
+          "source": "cohort_source = \"clinical_cohort_v14.parquet\"\nnull_threshold = 0.05\nschema_version = \"2.1\"\n"
+        },
+        {
+          "id": "cell_3",
+          "index": 2,
+          "cellType": "code",
+          "isParameterCell": false,
+          "executionCount": 2,
+          "source": "import pandas as pd\nimport pyarrow\nimport openlineage\n\ndf = pd.read_parquet(f\"s3://noteops-datasets/raw/{cohort_source}\")\nassert df.isna().mean().max() <= null_threshold\ndf.to_parquet(\"cleaned_cohort.parquet\", index=False)\n"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "cohort_source",
+          "type": "string",
+          "defaultValue": "clinical_cohort_v14.parquet",
+          "cellIndex": 1,
+          "inferredFromTag": true
+        },
+        {
+          "name": "null_threshold",
+          "type": "number",
+          "defaultValue": "0.05",
+          "cellIndex": 1,
+          "inferredFromTag": true
+        },
+        {
+          "name": "schema_version",
+          "type": "string",
+          "defaultValue": "2.1",
+          "cellIndex": 1,
+          "inferredFromTag": true
+        }
+      ],
+      "imports": [
+        "openlineage",
+        "pandas",
+        "pyarrow"
+      ]
+    },
+    {
+      "id": "nb_knn_impute",
+      "name": "02_feature_imputation_knn.ipynb",
+      "description": "Applies deterministic KNN missing-value imputation with configurable neighbor count and seed.",
+      "kernelName": "python3",
+      "pythonVersionHint": "3.12.7",
+      "owner": "Sanjay Kumar Mugada",
+      "uploadedAt": "2026-11-23T18:56:41.993Z",
+      "checksum": "sha256:cff675d70bcae5f9",
+      "cells": [
+        {
+          "id": "cell_1",
+          "index": 0,
+          "cellType": "markdown",
+          "isParameterCell": false,
+          "executionCount": 1,
+          "source": "# 02 — Deterministic KNN Feature Imputation\nReplaces missing genetic markers using distance-weighted KNN with a fixed random seed for reproducible outputs."
+        },
+        {
+          "id": "cell_2",
+          "index": 1,
+          "cellType": "code",
+          "isParameterCell": true,
+          "executionCount": 1,
+          "source": "knn_neighbors = 1\nimputer_weights = \"distance\"\nrandom_seed = 42\n"
+        },
+        {
+          "id": "cell_3",
+          "index": 2,
+          "cellType": "code",
+          "isParameterCell": false,
+          "executionCount": 2,
+          "source": "import numpy as np\nimport pandas as pd\nfrom sklearn.impute import KNNImputer\n\nnp.random.seed(random_seed)\ndf = pd.read_parquet(\"cleaned_cohort.parquet\")\nimputer = KNNImputer(n_neighbors=knn_neighbors, weights=imputer_weights)\nimputed = pd.DataFrame(imputer.fit_transform(df.drop(columns=[\"patient_id\"])), columns=df.columns[1:])\nimputed.to_parquet(\"imputed_features.parquet\", index=False)\n"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "knn_neighbors",
+          "type": "number",
+          "defaultValue": "1",
+          "cellIndex": 1,
+          "inferredFromTag": true
+        },
+        {
+          "name": "imputer_weights",
+          "type": "string",
+          "defaultValue": "distance",
+          "cellIndex": 1,
+          "inferredFromTag": true
+        },
+        {
+          "name": "random_seed",
+          "type": "number",
+          "defaultValue": "42",
+          "cellIndex": 1,
+          "inferredFromTag": true
+        }
+      ],
+      "imports": [
+        "numpy",
+        "pandas",
+        "sklearn"
+      ]
+    },
+    {
+      "id": "nb_train_rf",
+      "name": "03_train_evaluate_rf.ipynb",
+      "description": "Trains Random Forest cohort classifier, records evaluation metrics, and exports plot artifact.",
+      "kernelName": "python3",
+      "pythonVersionHint": "3.12.7",
+      "owner": "Godati Vinay Kumar",
+      "uploadedAt": "2026-11-23T18:56:41.993Z",
+      "checksum": "sha256:fc4689a0994ac22b",
+      "cells": [
+        {
+          "id": "cell_1",
+          "index": 0,
+          "cellType": "markdown",
+          "isParameterCell": false,
+          "executionCount": 1,
+          "source": "# 03 — Random Forest Training, Metrics & Importance Plot\nTrains classifier on imputed cohort features, logs ROC-AUC/Accuracy, and renders deterministic feature importance chart."
+        },
+        {
+          "id": "cell_2",
+          "index": 1,
+          "cellType": "code",
+          "isParameterCell": true,
+          "executionCount": 1,
+          "source": "n_estimators = 200\nmax_depth = 12\neval_metric = \"roc_auc\"\n"
+        },
+        {
+          "id": "cell_3",
+          "index": 2,
+          "cellType": "code",
+          "isParameterCell": false,
+          "executionCount": 2,
+          "source": "import pandas as pd\nimport matplotlib\nimport seaborn\nfrom sklearn.ensemble import RandomForestClassifier\n\nX = pd.read_parquet(\"imputed_features.parquet\")\nclf = RandomForestClassifier(n_estimators=n_estimators, max_depth=max_depth, random_state=42)\n# Save metrics JSON and deterministic PNG chart artifact\n"
+        }
+      ],
+      "parameters": [
+        {
+          "name": "n_estimators",
+          "type": "number",
+          "defaultValue": "200",
+          "cellIndex": 1,
+          "inferredFromTag": true
+        },
+        {
+          "name": "max_depth",
+          "type": "number",
+          "defaultValue": "12",
+          "cellIndex": 1,
+          "inferredFromTag": true
+        },
+        {
+          "name": "eval_metric",
+          "type": "string",
+          "defaultValue": "roc_auc",
+          "cellIndex": 1,
+          "inferredFromTag": true
+        }
+      ],
+      "imports": [
+        "matplotlib",
+        "pandas",
+        "seaborn",
+        "sklearn"
+      ]
+    }
+  ],
+  "pipelines": [
+    {
+      "id": "pipe_clinical_cohort",
+      "name": "Clinical Cohort Reproducible ML Pipeline",
+      "description": "End-to-end 3-step Papermill DAG turning exploratory cohort notebooks into a scheduled, lineage-tracked production pipeline.",
+      "version": "v1.4.0",
+      "environmentSpec": {
+        "baseImage": "ghcr.io/noteops/notebook-runner:py312-pinned",
+        "pythonVersion": "3.12.7",
+        "cpuRequest": "4 vCPU",
+        "memoryRequest": "8 GiB"
+      },
+      "steps": [
+        {
+          "id": "step_1",
+          "name": "Ingest & Validate Cohort",
+          "notebookId": "nb_ingest_cohort",
+          "notebookName": "01_ingest_clinical_cohort.ipynb",
+          "position": {
+            "x": 80,
+            "y": 120
+          },
+          "parameters": {
+            "cohort_source": "clinical_cohort_v14.parquet",
+            "null_threshold": "0.05",
+            "schema_version": "2.1"
+          },
+          "timeoutSec": 120,
+          "retries": 2,
+          "status": "succeeded"
+        },
+        {
+          "id": "step_2",
+          "name": "KNN Feature Imputation",
+          "notebookId": "nb_knn_impute",
+          "notebookName": "02_feature_imputation_knn.ipynb",
+          "position": {
+            "x": 370,
+            "y": 120
+          },
+          "parameters": {
+            "knn_neighbors": "1",
+            "imputer_weights": "distance",
+            "random_seed": "42"
+          },
+          "timeoutSec": 180,
+          "retries": 2,
+          "status": "succeeded"
+        },
+        {
+          "id": "step_3",
+          "name": "Train & Evaluate RF",
+          "notebookId": "nb_train_rf",
+          "notebookName": "03_train_evaluate_rf.ipynb",
+          "position": {
+            "x": 660,
+            "y": 120
+          },
+          "parameters": {
+            "n_estimators": "200",
+            "max_depth": "12",
+            "eval_metric": "roc_auc"
+          },
+          "timeoutSec": 240,
+          "retries": 1,
+          "status": "succeeded"
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge_1_2",
+          "source": "step_1",
+          "target": "step_2",
+          "label": "cleaned_cohort.parquet"
+        },
+        {
+          "id": "edge_2_3",
+          "source": "step_2",
+          "target": "step_3",
+          "label": "imputed_features.parquet"
+        }
+      ],
+      "validationErrors": [],
+      "createdAt": "2026-11-10T08:00:00.000Z",
+      "updatedAt": "2026-11-21T14:30:00.000Z"
+    }
+  ],
+  "schedules": [
+    {
+      "id": "sched_daily_cohort",
+      "pipelineId": "pipe_clinical_cohort",
+      "pipelineName": "Clinical Cohort Reproducible ML Pipeline",
+      "triggerType": "cron",
+      "cronExpression": "0 6 * * *",
+      "timezone": "UTC",
+      "enabled": true,
+      "parameterOverrides": {
+        "knn_neighbors": "1",
+        "n_estimators": "200",
+        "random_seed": "42"
+      },
+      "nextRunAt": "2026-11-23T06:00:00.000Z",
+      "lastRunId": "run_4002",
+      "lastRunStatus": "succeeded",
+      "createdAt": "2026-11-12T10:00:00.000Z"
+    },
+    {
+      "id": "sched_weekly_audit",
+      "pipelineId": "pipe_clinical_cohort",
+      "pipelineName": "Clinical Cohort Reproducible ML Pipeline",
+      "triggerType": "interval",
+      "cronExpression": "0 2 * * 0",
+      "intervalMinutes": 10080,
+      "timezone": "UTC",
+      "enabled": true,
+      "parameterOverrides": {
+        "knn_neighbors": "5",
+        "n_estimators": "300",
+        "random_seed": "42"
+      },
+      "nextRunAt": "2026-11-29T02:00:00.000Z",
+      "lastRunId": "run_4001",
+      "lastRunStatus": "succeeded",
+      "createdAt": "2026-11-14T11:30:00.000Z"
+    }
+  ],
+  "runs": [
+    {
+      "id": "run_6247",
+      "pipelineId": "pipe_clinical_cohort",
+      "pipelineName": "Clinical Cohort Reproducible ML Pipeline",
+      "triggeredBy": "manual",
+      "status": "succeeded",
+      "startedAt": "2026-11-23T19:07:33.615Z",
+      "durationSec": 3.6,
+      "parameters": {
+        "cohort_source": "clinical_cohort_v14.parquet",
+        "null_threshold": "0.05",
+        "schema_version": "2.1",
+        "knn_neighbors": "1",
+        "imputer_weights": "distance",
+        "random_seed": "42",
+        "n_estimators": "200",
+        "max_depth": "12",
+        "eval_metric": "roc_auc"
+      },
+      "stepStatuses": {
+        "step_1": "succeeded",
+        "step_2": "succeeded",
+        "step_3": "succeeded"
+      },
+      "environment": {
+        "id": "env_run_6247",
+        "runId": "run_6247",
+        "pythonVersion": "3.12.7",
+        "osRelease": "Debian GNU/Linux 12 (bookworm) · x86_64",
+        "containerImage": "ghcr.io/noteops/notebook-runner:py312-pinned",
+        "containerDigest": "sha256:2f6fe2f6f876100e",
+        "hardwareProfile": "4 vCPU · 8 GiB RAM · Isolated Pod",
+        "gitCommit": "8f3c21a",
+        "papermillVersion": "2.6.0",
+        "capturedAt": "2026-11-23T19:07:33.614Z"
+      },
+      "dependencyLock": {
+        "id": "lock_run_6247",
+        "runId": "run_6247",
+        "resolver": "pip-freeze",
+        "lockfileHash": "sha256:813db77ad96d0db2",
+        "entries": [
+          {
+            "packageName": "matplotlib",
+            "version": "3.9.2",
+            "source": "pip",
+            "sha256": "sha256:01f66e43fa0804cf"
+          },
+          {
+            "packageName": "nbclient",
+            "version": "0.10.0",
+            "source": "pip",
+            "sha256": "sha256:085d110766ee65dc"
+          },
+          {
+            "packageName": "numpy",
+            "version": "1.26.4",
+            "source": "pip",
+            "sha256": "sha256:652006045d7f09a6"
+          },
+          {
+            "packageName": "openlineage-python",
+            "version": "1.21.0",
+            "source": "pip",
+            "sha256": "sha256:334cae0015661a56"
+          },
+          {
+            "packageName": "pandas",
+            "version": "2.2.2",
+            "source": "pip",
+            "sha256": "sha256:38fc7e060ec1d8dd"
+          },
+          {
+            "packageName": "papermill",
+            "version": "2.6.0",
+            "source": "pip",
+            "sha256": "sha256:da38c1b733a23c83"
+          },
+          {
+            "packageName": "pyarrow",
+            "version": "17.0.0",
+            "source": "conda",
+            "sha256": "sha256:24d0944574c448ef"
+          },
+          {
+            "packageName": "seaborn",
+            "version": "0.13.2",
+            "source": "pip",
+            "sha256": "sha256:d663ed27e8fde641"
+          },
+          {
+            "packageName": "scikit-learn",
+            "version": "1.5.2",
+            "source": "pip",
+            "sha256": "sha256:0ee17e41674cabf3"
+          }
+        ]
+      },
+      "lineageNodes": [
+        {
+          "id": "ln_in_run_6247",
+          "runId": "run_6247",
+          "kind": "dataset_in",
+          "label": "clinical_cohort_v14.parquet",
+          "uri": "s3://noteops-datasets/raw/clinical_cohort_v14.parquet",
+          "sha256": "sha256:72e6c3c82015689f",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "patient_id",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "cohort_label",
+              "dtype": "int64",
+              "nullable": false
+            },
+            {
+              "column": "EGFR",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "TP53",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "PIK3CA",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "FGFR4",
+              "dtype": "float64",
+              "nullable": true
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 80,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_1",
+          "runId": "run_6247",
+          "kind": "step",
+          "label": "Ingest & Validate Cohort",
+          "uri": "papermill://01_ingest_clinical_cohort.ipynb",
+          "sha256": "sha256:df26368ab0c22033",
+          "status": "succeeded",
+          "position": {
+            "x": 310,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_2",
+          "runId": "run_6247",
+          "kind": "step",
+          "label": "KNN Feature Imputation",
+          "uri": "papermill://02_feature_imputation_knn.ipynb",
+          "sha256": "sha256:51ea563074b5d9c4",
+          "status": "succeeded",
+          "position": {
+            "x": 545,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_3",
+          "runId": "run_6247",
+          "kind": "step",
+          "label": "Train & Evaluate RF",
+          "uri": "papermill://03_train_evaluate_rf.ipynb",
+          "sha256": "sha256:88c32d846e583530",
+          "status": "succeeded",
+          "position": {
+            "x": 780,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_out_run_6247",
+          "runId": "run_6247",
+          "kind": "artifact_out",
+          "label": "cohort_eval_report.parquet",
+          "uri": "s3://noteops-artifacts/run_6247/cohort_eval_report.parquet",
+          "sha256": "sha256:306e98b6a2cc3117",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "feature",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "importance",
+              "dtype": "float64",
+              "nullable": false
+            },
+            {
+              "column": "roc_auc",
+              "dtype": "float64",
+              "nullable": false
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 1015,
+            "y": 150
+          }
+        }
+      ],
+      "lineageEdges": [
+        {
+          "id": "le_0_ln_in_run_6247_ln_step_step_1",
+          "runId": "run_6247",
+          "source": "ln_in_run_6247",
+          "target": "ln_step_step_1",
+          "relation": "reads"
+        },
+        {
+          "id": "le_1_ln_step_step_1_ln_step_step_2",
+          "runId": "run_6247",
+          "source": "ln_step_step_1",
+          "target": "ln_step_step_2",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_2_ln_step_step_2_ln_step_step_3",
+          "runId": "run_6247",
+          "source": "ln_step_step_2",
+          "target": "ln_step_step_3",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_out_ln_step_step_3",
+          "runId": "run_6247",
+          "source": "ln_step_step_3",
+          "target": "ln_out_run_6247",
+          "relation": "produces"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "art_run_6247_1",
+          "runId": "run_6247",
+          "stepId": "step_1",
+          "name": "cleaned_cohort.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_6247/step_1",
+          "sha256": "sha256:313dd218acb1db04",
+          "sizeKb": 842.6
+        },
+        {
+          "id": "art_run_6247_2",
+          "runId": "run_6247",
+          "stepId": "step_2",
+          "name": "imputed_features.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_6247/step_2",
+          "sha256": "sha256:217e5e38617d0cd8",
+          "sizeKb": 842.6,
+          "tablePreview": [
+            {
+              "patient_id": "GENIE-001",
+              "EGFR": 1,
+              "TP53": -1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-002",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": 1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-003",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            }
+          ]
+        },
+        {
+          "id": "art_run_6247_3",
+          "runId": "run_6247",
+          "stepId": "step_3",
+          "name": "rf_evaluation_metrics.json",
+          "kind": "metric",
+          "path": "s3://noteops-artifacts/run_6247/step_3",
+          "sha256": "sha256:306e98b6a2cc3117",
+          "sizeKb": 14.2,
+          "metrics": {
+            "roc_auc": 0.926,
+            "accuracy": 0.894,
+            "f1_macro": 0.883,
+            "brier_score": 0.0842
+          }
+        },
+        {
+          "id": "art_run_6247_chart",
+          "runId": "run_6247",
+          "stepId": "step_3",
+          "name": "feature_importance_plot.png",
+          "kind": "image",
+          "path": "s3://noteops-artifacts/run_6247/feature_importance_plot.png",
+          "sha256": "sha256:b826d9a8cceca2e5",
+          "sizeKb": 118.4
+        }
+      ],
+      "logs": [
+        {
+          "id": "log_run_6247_0",
+          "runId": "run_6247",
+          "stepId": "step_1",
+          "timestamp": "2026-11-23T19:07:33.615Z",
+          "level": "INFO",
+          "message": "Initialized isolated pod ghcr.io/noteops/notebook-runner:py312-pinned (sha256:2f6fe2f6f876100e) · Lock sha256:813db77ad96d0db2"
+        },
+        {
+          "id": "log_run_6247_s_0",
+          "runId": "run_6247",
+          "stepId": "step_1",
+          "timestamp": "2026-11-23T19:07:34.277Z",
+          "level": "INFO",
+          "message": "Papermill executing 01_ingest_clinical_cohort.ipynb with parameters {\"cohort_source\":\"clinical_cohort_v14.parquet\",\"null_threshold\":\"0.05\",\"schema_version\":\"2.1\"}"
+        },
+        {
+          "id": "log_run_6247_d_0",
+          "runId": "run_6247",
+          "stepId": "step_1",
+          "timestamp": "2026-11-23T19:07:35.024Z",
+          "level": "INFO",
+          "message": "Completed step \"Ingest & Validate Cohort\" · OpenLineage facet & SHA-256 artifact checksum persisted."
+        },
+        {
+          "id": "log_run_6247_s_1",
+          "runId": "run_6247",
+          "stepId": "step_2",
+          "timestamp": "2026-11-23T19:07:35.367Z",
+          "level": "INFO",
+          "message": "Papermill executing 02_feature_imputation_knn.ipynb with parameters {\"knn_neighbors\":\"1\",\"imputer_weights\":\"distance\",\"random_seed\":\"42\"}"
+        },
+        {
+          "id": "log_run_6247_d_1",
+          "runId": "run_6247",
+          "stepId": "step_2",
+          "timestamp": "2026-11-23T19:07:36.117Z",
+          "level": "INFO",
+          "message": "Completed step \"KNN Feature Imputation\" · OpenLineage facet & SHA-256 artifact checksum persisted."
+        },
+        {
+          "id": "log_run_6247_s_2",
+          "runId": "run_6247",
+          "stepId": "step_3",
+          "timestamp": "2026-11-23T19:07:36.479Z",
+          "level": "INFO",
+          "message": "Papermill executing 03_train_evaluate_rf.ipynb with parameters {\"n_estimators\":\"200\",\"max_depth\":\"12\",\"eval_metric\":\"roc_auc\"}"
+        },
+        {
+          "id": "log_run_6247_d_2",
+          "runId": "run_6247",
+          "stepId": "step_3",
+          "timestamp": "2026-11-23T19:07:37.227Z",
+          "level": "INFO",
+          "message": "Completed step \"Train & Evaluate RF\" · OpenLineage facet & SHA-256 artifact checksum persisted."
+        }
+      ],
+      "completedAt": "2026-11-23T19:07:37.228Z"
+    },
+    {
+      "id": "run_4005",
+      "pipelineId": "pipe_clinical_cohort",
+      "pipelineName": "Clinical Cohort Reproducible ML Pipeline",
+      "triggeredBy": "reproduction",
+      "status": "reproduced",
+      "startedAt": "2026-11-22T09:15:00.000Z",
+      "completedAt": "2026-11-22T09:15:42.100Z",
+      "durationSec": 42.1,
+      "parameters": {
+        "cohort_source": "clinical_cohort_v14.parquet",
+        "knn_neighbors": "1",
+        "random_seed": "42",
+        "n_estimators": "200"
+      },
+      "stepStatuses": {
+        "step_1": "succeeded",
+        "step_2": "succeeded",
+        "step_3": "succeeded"
+      },
+      "environment": {
+        "id": "env_run_4005",
+        "runId": "run_4005",
+        "pythonVersion": "3.12.7",
+        "osRelease": "Debian GNU/Linux 12 (bookworm) · x86_64",
+        "containerImage": "ghcr.io/noteops/notebook-runner:py312-pinned",
+        "containerDigest": "sha256:2f6fe2f6f876100e",
+        "hardwareProfile": "4 vCPU · 8 GiB RAM · Isolated Pod",
+        "gitCommit": "8f3c21a",
+        "papermillVersion": "2.6.0",
+        "capturedAt": "2026-11-23T18:56:41.996Z"
+      },
+      "dependencyLock": {
+        "id": "lock_run_4005",
+        "runId": "run_4005",
+        "resolver": "pip-freeze",
+        "lockfileHash": "sha256:813db77ad96d0db2",
+        "entries": [
+          {
+            "packageName": "matplotlib",
+            "version": "3.9.2",
+            "source": "pip",
+            "sha256": "sha256:01f66e43fa0804cf"
+          },
+          {
+            "packageName": "nbclient",
+            "version": "0.10.0",
+            "source": "pip",
+            "sha256": "sha256:085d110766ee65dc"
+          },
+          {
+            "packageName": "numpy",
+            "version": "1.26.4",
+            "source": "pip",
+            "sha256": "sha256:652006045d7f09a6"
+          },
+          {
+            "packageName": "openlineage-python",
+            "version": "1.21.0",
+            "source": "pip",
+            "sha256": "sha256:334cae0015661a56"
+          },
+          {
+            "packageName": "pandas",
+            "version": "2.2.2",
+            "source": "pip",
+            "sha256": "sha256:38fc7e060ec1d8dd"
+          },
+          {
+            "packageName": "papermill",
+            "version": "2.6.0",
+            "source": "pip",
+            "sha256": "sha256:da38c1b733a23c83"
+          },
+          {
+            "packageName": "pyarrow",
+            "version": "17.0.0",
+            "source": "conda",
+            "sha256": "sha256:24d0944574c448ef"
+          },
+          {
+            "packageName": "seaborn",
+            "version": "0.13.2",
+            "source": "pip",
+            "sha256": "sha256:d663ed27e8fde641"
+          },
+          {
+            "packageName": "scikit-learn",
+            "version": "1.5.2",
+            "source": "pip",
+            "sha256": "sha256:0ee17e41674cabf3"
+          }
+        ]
+      },
+      "lineageNodes": [
+        {
+          "id": "ln_in_run_4005",
+          "runId": "run_4005",
+          "kind": "dataset_in",
+          "label": "clinical_cohort_v14.parquet",
+          "uri": "s3://noteops-datasets/raw/clinical_cohort_v14.parquet",
+          "sha256": "sha256:72e6c3c82015689f",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "patient_id",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "cohort_label",
+              "dtype": "int64",
+              "nullable": false
+            },
+            {
+              "column": "EGFR",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "TP53",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "PIK3CA",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "FGFR4",
+              "dtype": "float64",
+              "nullable": true
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 80,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_1",
+          "runId": "run_4005",
+          "kind": "step",
+          "label": "Ingest & Validate Cohort",
+          "uri": "papermill://01_ingest_clinical_cohort.ipynb",
+          "sha256": "sha256:df26368ab0c22033",
+          "status": "succeeded",
+          "position": {
+            "x": 310,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_2",
+          "runId": "run_4005",
+          "kind": "step",
+          "label": "KNN Feature Imputation",
+          "uri": "papermill://02_feature_imputation_knn.ipynb",
+          "sha256": "sha256:51ea563074b5d9c4",
+          "status": "succeeded",
+          "position": {
+            "x": 545,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_3",
+          "runId": "run_4005",
+          "kind": "step",
+          "label": "Train & Evaluate RF",
+          "uri": "papermill://03_train_evaluate_rf.ipynb",
+          "sha256": "sha256:88c32d846e583530",
+          "status": "succeeded",
+          "position": {
+            "x": 780,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_out_run_4005",
+          "runId": "run_4005",
+          "kind": "artifact_out",
+          "label": "cohort_eval_report.parquet",
+          "uri": "s3://noteops-artifacts/run_4005/cohort_eval_report.parquet",
+          "sha256": "sha256:8c42e270dcb7acb1",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "feature",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "importance",
+              "dtype": "float64",
+              "nullable": false
+            },
+            {
+              "column": "roc_auc",
+              "dtype": "float64",
+              "nullable": false
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 1015,
+            "y": 150
+          }
+        }
+      ],
+      "lineageEdges": [
+        {
+          "id": "le_0_ln_in_run_4005_ln_step_step_1",
+          "runId": "run_4005",
+          "source": "ln_in_run_4005",
+          "target": "ln_step_step_1",
+          "relation": "reads"
+        },
+        {
+          "id": "le_1_ln_step_step_1_ln_step_step_2",
+          "runId": "run_4005",
+          "source": "ln_step_step_1",
+          "target": "ln_step_step_2",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_2_ln_step_step_2_ln_step_step_3",
+          "runId": "run_4005",
+          "source": "ln_step_step_2",
+          "target": "ln_step_step_3",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_out_ln_step_step_3",
+          "runId": "run_4005",
+          "source": "ln_step_step_3",
+          "target": "ln_out_run_4005",
+          "relation": "produces"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "art_run_4005_1",
+          "runId": "run_4005",
+          "stepId": "step_1",
+          "name": "cleaned_cohort.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4005/step_1",
+          "sha256": "sha256:30c78f6317e1df50",
+          "sizeKb": 842.6
+        },
+        {
+          "id": "art_run_4005_2",
+          "runId": "run_4005",
+          "stepId": "step_2",
+          "name": "imputed_features.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4005/step_2",
+          "sha256": "sha256:3887c6854d7f0d30",
+          "sizeKb": 842.6,
+          "tablePreview": [
+            {
+              "patient_id": "GENIE-001",
+              "EGFR": 1,
+              "TP53": -1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-002",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": 1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-003",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            }
+          ]
+        },
+        {
+          "id": "art_run_4005_3",
+          "runId": "run_4005",
+          "stepId": "step_3",
+          "name": "rf_evaluation_metrics.json",
+          "kind": "metric",
+          "path": "s3://noteops-artifacts/run_4005/step_3",
+          "sha256": "sha256:8c42e270dcb7acb1",
+          "sizeKb": 14.2,
+          "metrics": {
+            "roc_auc": 0.926,
+            "accuracy": 0.894,
+            "f1_macro": 0.883,
+            "brier_score": 0.0842
+          }
+        },
+        {
+          "id": "art_run_4005_chart",
+          "runId": "run_4005",
+          "stepId": "step_3",
+          "name": "feature_importance_plot.png",
+          "kind": "image",
+          "path": "s3://noteops-artifacts/run_4005/feature_importance_plot.png",
+          "sha256": "sha256:d836c3efcdc5b3a1",
+          "sizeKb": 118.4
+        }
+      ],
+      "logs": [
+        {
+          "id": "log_run_4005_1",
+          "runId": "run_4005",
+          "stepId": "step_1",
+          "timestamp": "2026-11-22T09:15:00.000Z",
+          "level": "INFO",
+          "message": "Frozen OCI digest sha256:2f6fe2f6f876100e · Papermill 2.6.0 executing 01_ingest_clinical_cohort.ipynb"
+        },
+        {
+          "id": "log_run_4005_2",
+          "runId": "run_4005",
+          "stepId": "step_2",
+          "timestamp": "2026-11-22T09:15:00.000Z",
+          "level": "INFO",
+          "message": "Step 2 completed KNN imputation (k=1, seed=42)."
+        },
+        {
+          "id": "log_run_4005_3",
+          "runId": "run_4005",
+          "stepId": "step_3",
+          "timestamp": "2026-11-22T09:15:00.000Z",
+          "level": "INFO",
+          "message": "Step 3 finished: emitted rf_evaluation_metrics.json and feature_importance_plot.png with SHA-256 hashes."
+        }
+      ],
+      "reproductionOfRunId": "run_4002"
+    },
+    {
+      "id": "run_4004",
+      "pipelineId": "pipe_clinical_cohort",
+      "pipelineName": "Clinical Cohort Reproducible ML Pipeline",
+      "triggeredBy": "manual",
+      "status": "degraded",
+      "startedAt": "2026-11-21T15:10:00.000Z",
+      "completedAt": "2026-11-21T15:10:53.700Z",
+      "durationSec": 53.7,
+      "parameters": {
+        "cohort_source": "clinical_cohort_v14.parquet",
+        "knn_neighbors": "1",
+        "random_seed": "42",
+        "n_estimators": "200"
+      },
+      "stepStatuses": {
+        "step_1": "succeeded",
+        "step_2": "degraded",
+        "step_3": "degraded"
+      },
+      "environment": {
+        "id": "env_run_4004",
+        "runId": "run_4004",
+        "pythonVersion": "3.12.7",
+        "osRelease": "Debian GNU/Linux 12 (bookworm) · x86_64",
+        "containerImage": "ghcr.io/noteops/notebook-runner:py312-pinned",
+        "containerDigest": "sha256:2f6fe2f6f876100e",
+        "hardwareProfile": "4 vCPU · 8 GiB RAM · Isolated Pod",
+        "gitCommit": "8f3c21a",
+        "papermillVersion": "2.6.0",
+        "capturedAt": "2026-11-23T18:56:41.996Z"
+      },
+      "dependencyLock": {
+        "id": "lock_run_4004",
+        "runId": "run_4004",
+        "resolver": "pip-freeze",
+        "lockfileHash": "sha256:813db77ad96d0db2",
+        "entries": [
+          {
+            "packageName": "matplotlib",
+            "version": "3.9.2",
+            "source": "pip",
+            "sha256": "sha256:01f66e43fa0804cf"
+          },
+          {
+            "packageName": "nbclient",
+            "version": "0.10.0",
+            "source": "pip",
+            "sha256": "sha256:085d110766ee65dc"
+          },
+          {
+            "packageName": "numpy",
+            "version": "1.26.4",
+            "source": "pip",
+            "sha256": "sha256:652006045d7f09a6"
+          },
+          {
+            "packageName": "openlineage-python",
+            "version": "1.21.0",
+            "source": "pip",
+            "sha256": "sha256:334cae0015661a56"
+          },
+          {
+            "packageName": "pandas",
+            "version": "2.2.2",
+            "source": "pip",
+            "sha256": "sha256:38fc7e060ec1d8dd"
+          },
+          {
+            "packageName": "papermill",
+            "version": "2.6.0",
+            "source": "pip",
+            "sha256": "sha256:da38c1b733a23c83"
+          },
+          {
+            "packageName": "pyarrow",
+            "version": "17.0.0",
+            "source": "conda",
+            "sha256": "sha256:24d0944574c448ef"
+          },
+          {
+            "packageName": "seaborn",
+            "version": "0.13.2",
+            "source": "pip",
+            "sha256": "sha256:d663ed27e8fde641"
+          },
+          {
+            "packageName": "scikit-learn",
+            "version": "1.5.2",
+            "source": "pip",
+            "sha256": "sha256:0ee17e41674cabf3"
+          }
+        ]
+      },
+      "lineageNodes": [
+        {
+          "id": "ln_in_run_4004",
+          "runId": "run_4004",
+          "kind": "dataset_in",
+          "label": "clinical_cohort_v14.parquet",
+          "uri": "s3://noteops-datasets/raw/clinical_cohort_v14.parquet",
+          "sha256": "sha256:72e6c3c82015689f",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "patient_id",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "cohort_label",
+              "dtype": "int64",
+              "nullable": false
+            },
+            {
+              "column": "EGFR",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "TP53",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "PIK3CA",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "FGFR4",
+              "dtype": "float64",
+              "nullable": true
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 80,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_1",
+          "runId": "run_4004",
+          "kind": "step",
+          "label": "Ingest & Validate Cohort",
+          "uri": "papermill://01_ingest_clinical_cohort.ipynb",
+          "sha256": "sha256:df26368ab0c22033",
+          "status": "succeeded",
+          "position": {
+            "x": 310,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_2",
+          "runId": "run_4004",
+          "kind": "step",
+          "label": "KNN Feature Imputation",
+          "uri": "papermill://02_feature_imputation_knn.ipynb",
+          "sha256": "sha256:51ea563074b5d9c4",
+          "status": "degraded",
+          "position": {
+            "x": 545,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_3",
+          "runId": "run_4004",
+          "kind": "step",
+          "label": "Train & Evaluate RF",
+          "uri": "papermill://03_train_evaluate_rf.ipynb",
+          "sha256": "sha256:88c32d846e583530",
+          "status": "succeeded",
+          "position": {
+            "x": 780,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_out_run_4004",
+          "runId": "run_4004",
+          "kind": "artifact_out",
+          "label": "cohort_eval_report.parquet",
+          "uri": "s3://noteops-artifacts/run_4004/cohort_eval_report.parquet",
+          "sha256": "sha256:55f1bcbf2082235d",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "feature",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "importance",
+              "dtype": "float64",
+              "nullable": false
+            },
+            {
+              "column": "roc_auc",
+              "dtype": "float64",
+              "nullable": false
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 1015,
+            "y": 150
+          }
+        }
+      ],
+      "lineageEdges": [
+        {
+          "id": "le_0_ln_in_run_4004_ln_step_step_1",
+          "runId": "run_4004",
+          "source": "ln_in_run_4004",
+          "target": "ln_step_step_1",
+          "relation": "reads"
+        },
+        {
+          "id": "le_1_ln_step_step_1_ln_step_step_2",
+          "runId": "run_4004",
+          "source": "ln_step_step_1",
+          "target": "ln_step_step_2",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_2_ln_step_step_2_ln_step_step_3",
+          "runId": "run_4004",
+          "source": "ln_step_step_2",
+          "target": "ln_step_step_3",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_out_ln_step_step_3",
+          "runId": "run_4004",
+          "source": "ln_step_step_3",
+          "target": "ln_out_run_4004",
+          "relation": "produces"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "art_run_4004_1",
+          "runId": "run_4004",
+          "stepId": "step_1",
+          "name": "cleaned_cohort.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4004/step_1",
+          "sha256": "sha256:1b1a71df108176ed",
+          "sizeKb": 842.6
+        },
+        {
+          "id": "art_run_4004_2",
+          "runId": "run_4004",
+          "stepId": "step_2",
+          "name": "imputed_features.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4004/step_2",
+          "sha256": "sha256:0abd4df39311ed42",
+          "sizeKb": 842.6,
+          "tablePreview": [
+            {
+              "patient_id": "GENIE-001",
+              "EGFR": 1,
+              "TP53": -1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-002",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": 1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-003",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            }
+          ]
+        },
+        {
+          "id": "art_run_4004_3",
+          "runId": "run_4004",
+          "stepId": "step_3",
+          "name": "rf_evaluation_metrics.json",
+          "kind": "metric",
+          "path": "s3://noteops-artifacts/run_4004/step_3",
+          "sha256": "sha256:55f1bcbf2082235d",
+          "sizeKb": 14.2,
+          "metrics": {
+            "roc_auc": 0.926,
+            "accuracy": 0.894,
+            "f1_macro": 0.883,
+            "brier_score": 0.0842
+          }
+        },
+        {
+          "id": "art_run_4004_chart",
+          "runId": "run_4004",
+          "stepId": "step_3",
+          "name": "feature_importance_plot.png",
+          "kind": "image",
+          "path": "s3://noteops-artifacts/run_4004/feature_importance_plot.png",
+          "sha256": "sha256:d836c3efcdc5b3a1",
+          "sizeKb": 118.4
+        }
+      ],
+      "logs": [
+        {
+          "id": "log_run_4004_1",
+          "runId": "run_4004",
+          "stepId": "step_1",
+          "timestamp": "2026-11-21T15:10:00.000Z",
+          "level": "INFO",
+          "message": "Frozen OCI digest sha256:2f6fe2f6f876100e · Papermill 2.6.0 executing 01_ingest_clinical_cohort.ipynb"
+        },
+        {
+          "id": "log_run_4004_2",
+          "runId": "run_4004",
+          "stepId": "step_2",
+          "timestamp": "2026-11-21T15:10:00.000Z",
+          "level": "WARN",
+          "message": "OpenLineage endpoint latency spike detected; buffered facet payload to local WAL before flush."
+        },
+        {
+          "id": "log_run_4004_3",
+          "runId": "run_4004",
+          "stepId": "step_3",
+          "timestamp": "2026-11-21T15:10:00.000Z",
+          "level": "INFO",
+          "message": "Step 3 finished: emitted rf_evaluation_metrics.json and feature_importance_plot.png with SHA-256 hashes."
+        }
+      ]
+    },
+    {
+      "id": "run_4003",
+      "pipelineId": "pipe_clinical_cohort",
+      "pipelineName": "Clinical Cohort Reproducible ML Pipeline",
+      "scheduleId": "sched_daily_cohort",
+      "triggeredBy": "scheduled",
+      "status": "failed",
+      "startedAt": "2026-11-21T06:00:00.000Z",
+      "completedAt": "2026-11-21T06:00:19.400Z",
+      "durationSec": 19.4,
+      "parameters": {
+        "cohort_source": "clinical_cohort_v13_corrupt.parquet",
+        "knn_neighbors": "1",
+        "random_seed": "42",
+        "n_estimators": "200"
+      },
+      "stepStatuses": {
+        "step_1": "succeeded",
+        "step_2": "succeeded",
+        "step_3": "failed"
+      },
+      "environment": {
+        "id": "env_run_4003",
+        "runId": "run_4003",
+        "pythonVersion": "3.12.7",
+        "osRelease": "Debian GNU/Linux 12 (bookworm) · x86_64",
+        "containerImage": "ghcr.io/noteops/notebook-runner:py312-pinned",
+        "containerDigest": "sha256:2f6fe2f6f876100e",
+        "hardwareProfile": "4 vCPU · 8 GiB RAM · Isolated Pod",
+        "gitCommit": "8f3c21a",
+        "papermillVersion": "2.6.0",
+        "capturedAt": "2026-11-23T18:56:41.996Z"
+      },
+      "dependencyLock": {
+        "id": "lock_run_4003",
+        "runId": "run_4003",
+        "resolver": "pip-freeze",
+        "lockfileHash": "sha256:813db77ad96d0db2",
+        "entries": [
+          {
+            "packageName": "matplotlib",
+            "version": "3.9.2",
+            "source": "pip",
+            "sha256": "sha256:01f66e43fa0804cf"
+          },
+          {
+            "packageName": "nbclient",
+            "version": "0.10.0",
+            "source": "pip",
+            "sha256": "sha256:085d110766ee65dc"
+          },
+          {
+            "packageName": "numpy",
+            "version": "1.26.4",
+            "source": "pip",
+            "sha256": "sha256:652006045d7f09a6"
+          },
+          {
+            "packageName": "openlineage-python",
+            "version": "1.21.0",
+            "source": "pip",
+            "sha256": "sha256:334cae0015661a56"
+          },
+          {
+            "packageName": "pandas",
+            "version": "2.2.2",
+            "source": "pip",
+            "sha256": "sha256:38fc7e060ec1d8dd"
+          },
+          {
+            "packageName": "papermill",
+            "version": "2.6.0",
+            "source": "pip",
+            "sha256": "sha256:da38c1b733a23c83"
+          },
+          {
+            "packageName": "pyarrow",
+            "version": "17.0.0",
+            "source": "conda",
+            "sha256": "sha256:24d0944574c448ef"
+          },
+          {
+            "packageName": "seaborn",
+            "version": "0.13.2",
+            "source": "pip",
+            "sha256": "sha256:d663ed27e8fde641"
+          },
+          {
+            "packageName": "scikit-learn",
+            "version": "1.5.2",
+            "source": "pip",
+            "sha256": "sha256:0ee17e41674cabf3"
+          }
+        ]
+      },
+      "lineageNodes": [
+        {
+          "id": "ln_in_run_4003",
+          "runId": "run_4003",
+          "kind": "dataset_in",
+          "label": "clinical_cohort_v13_corrupt.parquet",
+          "uri": "s3://noteops-datasets/raw/clinical_cohort_v13_corrupt.parquet",
+          "sha256": "sha256:0ec7141d4e554b2d",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "patient_id",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "cohort_label",
+              "dtype": "int64",
+              "nullable": false
+            },
+            {
+              "column": "EGFR",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "TP53",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "PIK3CA",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "FGFR4",
+              "dtype": "float64",
+              "nullable": true
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 80,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_1",
+          "runId": "run_4003",
+          "kind": "step",
+          "label": "Ingest & Validate Cohort",
+          "uri": "papermill://01_ingest_clinical_cohort.ipynb",
+          "sha256": "sha256:df26368ab0c22033",
+          "status": "succeeded",
+          "position": {
+            "x": 310,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_2",
+          "runId": "run_4003",
+          "kind": "step",
+          "label": "KNN Feature Imputation",
+          "uri": "papermill://02_feature_imputation_knn.ipynb",
+          "sha256": "sha256:51ea563074b5d9c4",
+          "status": "succeeded",
+          "position": {
+            "x": 545,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_3",
+          "runId": "run_4003",
+          "kind": "step",
+          "label": "Train & Evaluate RF",
+          "uri": "papermill://03_train_evaluate_rf.ipynb",
+          "sha256": "sha256:88c32d846e583530",
+          "status": "failed",
+          "position": {
+            "x": 780,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_out_run_4003",
+          "runId": "run_4003",
+          "kind": "artifact_out",
+          "label": "cohort_eval_report.parquet",
+          "uri": "s3://noteops-artifacts/run_4003/cohort_eval_report.parquet",
+          "sha256": "sha256:3e1291f54e59da0a",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "feature",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "importance",
+              "dtype": "float64",
+              "nullable": false
+            },
+            {
+              "column": "roc_auc",
+              "dtype": "float64",
+              "nullable": false
+            }
+          ],
+          "status": "failed",
+          "position": {
+            "x": 1015,
+            "y": 150
+          }
+        }
+      ],
+      "lineageEdges": [
+        {
+          "id": "le_0_ln_in_run_4003_ln_step_step_1",
+          "runId": "run_4003",
+          "source": "ln_in_run_4003",
+          "target": "ln_step_step_1",
+          "relation": "reads"
+        },
+        {
+          "id": "le_1_ln_step_step_1_ln_step_step_2",
+          "runId": "run_4003",
+          "source": "ln_step_step_1",
+          "target": "ln_step_step_2",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_2_ln_step_step_2_ln_step_step_3",
+          "runId": "run_4003",
+          "source": "ln_step_step_2",
+          "target": "ln_step_step_3",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_out_ln_step_step_3",
+          "runId": "run_4003",
+          "source": "ln_step_step_3",
+          "target": "ln_out_run_4003",
+          "relation": "produces"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "art_run_4003_1",
+          "runId": "run_4003",
+          "stepId": "step_1",
+          "name": "cleaned_cohort.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4003/step_1",
+          "sha256": "sha256:6d19f4a81a605fcb",
+          "sizeKb": 842.6
+        },
+        {
+          "id": "art_run_4003_2",
+          "runId": "run_4003",
+          "stepId": "step_2",
+          "name": "imputed_features.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4003/step_2",
+          "sha256": "sha256:9fad78336f1307e9",
+          "sizeKb": 842.6,
+          "tablePreview": [
+            {
+              "patient_id": "GENIE-001",
+              "EGFR": 1,
+              "TP53": -1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-002",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": 1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-003",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            }
+          ]
+        },
+        {
+          "id": "art_run_4003_3",
+          "runId": "run_4003",
+          "stepId": "step_3",
+          "name": "rf_evaluation_metrics.json",
+          "kind": "metric",
+          "path": "s3://noteops-artifacts/run_4003/step_3",
+          "sha256": "sha256:3e1291f54e59da0a",
+          "sizeKb": 14.2,
+          "metrics": {
+            "roc_auc": 0.926,
+            "accuracy": 0.894,
+            "f1_macro": 0.883,
+            "brier_score": 0.0842
+          }
+        },
+        {
+          "id": "art_run_4003_chart",
+          "runId": "run_4003",
+          "stepId": "step_3",
+          "name": "feature_importance_plot.png",
+          "kind": "image",
+          "path": "s3://noteops-artifacts/run_4003/feature_importance_plot.png",
+          "sha256": "sha256:90472639caefd0ae",
+          "sizeKb": 118.4
+        }
+      ],
+      "logs": [
+        {
+          "id": "log_run_4003_1",
+          "runId": "run_4003",
+          "stepId": "step_1",
+          "timestamp": "2026-11-21T06:00:00.000Z",
+          "level": "INFO",
+          "message": "Frozen OCI digest sha256:2f6fe2f6f876100e · Papermill 2.6.0 executing 01_ingest_clinical_cohort.ipynb"
+        },
+        {
+          "id": "log_run_4003_2",
+          "runId": "run_4003",
+          "stepId": "step_2",
+          "timestamp": "2026-11-21T06:00:00.000Z",
+          "level": "INFO",
+          "message": "Step 2 completed KNN imputation (k=1, seed=42)."
+        },
+        {
+          "id": "log_run_4003_3",
+          "runId": "run_4003",
+          "stepId": "step_3",
+          "timestamp": "2026-11-21T06:00:00.000Z",
+          "level": "ERROR",
+          "message": "Schema contract error: column FGFR4 missing in upstream cohort_v13 batch. Aborted fail-closed."
+        }
+      ]
+    },
+    {
+      "id": "run_4002",
+      "pipelineId": "pipe_clinical_cohort",
+      "pipelineName": "Clinical Cohort Reproducible ML Pipeline",
+      "scheduleId": "sched_daily_cohort",
+      "triggeredBy": "scheduled",
+      "status": "succeeded",
+      "startedAt": "2026-11-20T06:00:00.000Z",
+      "completedAt": "2026-11-20T06:00:42.800Z",
+      "durationSec": 42.8,
+      "parameters": {
+        "cohort_source": "clinical_cohort_v14.parquet",
+        "knn_neighbors": "1",
+        "random_seed": "42",
+        "n_estimators": "200"
+      },
+      "stepStatuses": {
+        "step_1": "succeeded",
+        "step_2": "succeeded",
+        "step_3": "succeeded"
+      },
+      "environment": {
+        "id": "env_run_4002",
+        "runId": "run_4002",
+        "pythonVersion": "3.12.7",
+        "osRelease": "Debian GNU/Linux 12 (bookworm) · x86_64",
+        "containerImage": "ghcr.io/noteops/notebook-runner:py312-pinned",
+        "containerDigest": "sha256:2f6fe2f6f876100e",
+        "hardwareProfile": "4 vCPU · 8 GiB RAM · Isolated Pod",
+        "gitCommit": "8f3c21a",
+        "papermillVersion": "2.6.0",
+        "capturedAt": "2026-11-23T18:56:41.996Z"
+      },
+      "dependencyLock": {
+        "id": "lock_run_4002",
+        "runId": "run_4002",
+        "resolver": "pip-freeze",
+        "lockfileHash": "sha256:813db77ad96d0db2",
+        "entries": [
+          {
+            "packageName": "matplotlib",
+            "version": "3.9.2",
+            "source": "pip",
+            "sha256": "sha256:01f66e43fa0804cf"
+          },
+          {
+            "packageName": "nbclient",
+            "version": "0.10.0",
+            "source": "pip",
+            "sha256": "sha256:085d110766ee65dc"
+          },
+          {
+            "packageName": "numpy",
+            "version": "1.26.4",
+            "source": "pip",
+            "sha256": "sha256:652006045d7f09a6"
+          },
+          {
+            "packageName": "openlineage-python",
+            "version": "1.21.0",
+            "source": "pip",
+            "sha256": "sha256:334cae0015661a56"
+          },
+          {
+            "packageName": "pandas",
+            "version": "2.2.2",
+            "source": "pip",
+            "sha256": "sha256:38fc7e060ec1d8dd"
+          },
+          {
+            "packageName": "papermill",
+            "version": "2.6.0",
+            "source": "pip",
+            "sha256": "sha256:da38c1b733a23c83"
+          },
+          {
+            "packageName": "pyarrow",
+            "version": "17.0.0",
+            "source": "conda",
+            "sha256": "sha256:24d0944574c448ef"
+          },
+          {
+            "packageName": "seaborn",
+            "version": "0.13.2",
+            "source": "pip",
+            "sha256": "sha256:d663ed27e8fde641"
+          },
+          {
+            "packageName": "scikit-learn",
+            "version": "1.5.2",
+            "source": "pip",
+            "sha256": "sha256:0ee17e41674cabf3"
+          }
+        ]
+      },
+      "lineageNodes": [
+        {
+          "id": "ln_in_run_4002",
+          "runId": "run_4002",
+          "kind": "dataset_in",
+          "label": "clinical_cohort_v14.parquet",
+          "uri": "s3://noteops-datasets/raw/clinical_cohort_v14.parquet",
+          "sha256": "sha256:72e6c3c82015689f",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "patient_id",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "cohort_label",
+              "dtype": "int64",
+              "nullable": false
+            },
+            {
+              "column": "EGFR",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "TP53",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "PIK3CA",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "FGFR4",
+              "dtype": "float64",
+              "nullable": true
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 80,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_1",
+          "runId": "run_4002",
+          "kind": "step",
+          "label": "Ingest & Validate Cohort",
+          "uri": "papermill://01_ingest_clinical_cohort.ipynb",
+          "sha256": "sha256:df26368ab0c22033",
+          "status": "succeeded",
+          "position": {
+            "x": 310,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_2",
+          "runId": "run_4002",
+          "kind": "step",
+          "label": "KNN Feature Imputation",
+          "uri": "papermill://02_feature_imputation_knn.ipynb",
+          "sha256": "sha256:51ea563074b5d9c4",
+          "status": "succeeded",
+          "position": {
+            "x": 545,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_3",
+          "runId": "run_4002",
+          "kind": "step",
+          "label": "Train & Evaluate RF",
+          "uri": "papermill://03_train_evaluate_rf.ipynb",
+          "sha256": "sha256:88c32d846e583530",
+          "status": "succeeded",
+          "position": {
+            "x": 780,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_out_run_4002",
+          "runId": "run_4002",
+          "kind": "artifact_out",
+          "label": "cohort_eval_report.parquet",
+          "uri": "s3://noteops-artifacts/run_4002/cohort_eval_report.parquet",
+          "sha256": "sha256:215c563abec7d88e",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "feature",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "importance",
+              "dtype": "float64",
+              "nullable": false
+            },
+            {
+              "column": "roc_auc",
+              "dtype": "float64",
+              "nullable": false
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 1015,
+            "y": 150
+          }
+        }
+      ],
+      "lineageEdges": [
+        {
+          "id": "le_0_ln_in_run_4002_ln_step_step_1",
+          "runId": "run_4002",
+          "source": "ln_in_run_4002",
+          "target": "ln_step_step_1",
+          "relation": "reads"
+        },
+        {
+          "id": "le_1_ln_step_step_1_ln_step_step_2",
+          "runId": "run_4002",
+          "source": "ln_step_step_1",
+          "target": "ln_step_step_2",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_2_ln_step_step_2_ln_step_step_3",
+          "runId": "run_4002",
+          "source": "ln_step_step_2",
+          "target": "ln_step_step_3",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_out_ln_step_step_3",
+          "runId": "run_4002",
+          "source": "ln_step_step_3",
+          "target": "ln_out_run_4002",
+          "relation": "produces"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "art_run_4002_1",
+          "runId": "run_4002",
+          "stepId": "step_1",
+          "name": "cleaned_cohort.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4002/step_1",
+          "sha256": "sha256:d60f84373956a25e",
+          "sizeKb": 842.6
+        },
+        {
+          "id": "art_run_4002_2",
+          "runId": "run_4002",
+          "stepId": "step_2",
+          "name": "imputed_features.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4002/step_2",
+          "sha256": "sha256:6d884d4000bc0c26",
+          "sizeKb": 842.6,
+          "tablePreview": [
+            {
+              "patient_id": "GENIE-001",
+              "EGFR": 1,
+              "TP53": -1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-002",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": 1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-003",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            }
+          ]
+        },
+        {
+          "id": "art_run_4002_3",
+          "runId": "run_4002",
+          "stepId": "step_3",
+          "name": "rf_evaluation_metrics.json",
+          "kind": "metric",
+          "path": "s3://noteops-artifacts/run_4002/step_3",
+          "sha256": "sha256:215c563abec7d88e",
+          "sizeKb": 14.2,
+          "metrics": {
+            "roc_auc": 0.926,
+            "accuracy": 0.894,
+            "f1_macro": 0.883,
+            "brier_score": 0.0842
+          }
+        },
+        {
+          "id": "art_run_4002_chart",
+          "runId": "run_4002",
+          "stepId": "step_3",
+          "name": "feature_importance_plot.png",
+          "kind": "image",
+          "path": "s3://noteops-artifacts/run_4002/feature_importance_plot.png",
+          "sha256": "sha256:d836c3efcdc5b3a1",
+          "sizeKb": 118.4
+        }
+      ],
+      "logs": [
+        {
+          "id": "log_run_4002_1",
+          "runId": "run_4002",
+          "stepId": "step_1",
+          "timestamp": "2026-11-20T06:00:00.000Z",
+          "level": "INFO",
+          "message": "Frozen OCI digest sha256:2f6fe2f6f876100e · Papermill 2.6.0 executing 01_ingest_clinical_cohort.ipynb"
+        },
+        {
+          "id": "log_run_4002_2",
+          "runId": "run_4002",
+          "stepId": "step_2",
+          "timestamp": "2026-11-20T06:00:00.000Z",
+          "level": "INFO",
+          "message": "Step 2 completed KNN imputation (k=1, seed=42)."
+        },
+        {
+          "id": "log_run_4002_3",
+          "runId": "run_4002",
+          "stepId": "step_3",
+          "timestamp": "2026-11-20T06:00:00.000Z",
+          "level": "INFO",
+          "message": "Step 3 finished: emitted rf_evaluation_metrics.json and feature_importance_plot.png with SHA-256 hashes."
+        }
+      ]
+    },
+    {
+      "id": "run_4001",
+      "pipelineId": "pipe_clinical_cohort",
+      "pipelineName": "Clinical Cohort Reproducible ML Pipeline",
+      "scheduleId": "sched_daily_cohort",
+      "triggeredBy": "scheduled",
+      "status": "succeeded",
+      "startedAt": "2026-11-18T06:00:00.000Z",
+      "completedAt": "2026-11-18T06:00:46.200Z",
+      "durationSec": 46.2,
+      "parameters": {
+        "cohort_source": "clinical_cohort_v14.parquet",
+        "knn_neighbors": "5",
+        "random_seed": "42",
+        "n_estimators": "200"
+      },
+      "stepStatuses": {
+        "step_1": "succeeded",
+        "step_2": "succeeded",
+        "step_3": "succeeded"
+      },
+      "environment": {
+        "id": "env_run_4001",
+        "runId": "run_4001",
+        "pythonVersion": "3.12.7",
+        "osRelease": "Debian GNU/Linux 12 (bookworm) · x86_64",
+        "containerImage": "ghcr.io/noteops/notebook-runner:py312-pinned",
+        "containerDigest": "sha256:2f6fe2f6f876100e",
+        "hardwareProfile": "4 vCPU · 8 GiB RAM · Isolated Pod",
+        "gitCommit": "7d1e04c",
+        "papermillVersion": "2.6.0",
+        "capturedAt": "2026-11-23T18:56:41.994Z"
+      },
+      "dependencyLock": {
+        "id": "lock_run_4001",
+        "runId": "run_4001",
+        "resolver": "pip-freeze",
+        "lockfileHash": "sha256:813db77ad96d0db2",
+        "entries": [
+          {
+            "packageName": "matplotlib",
+            "version": "3.9.2",
+            "source": "pip",
+            "sha256": "sha256:01f66e43fa0804cf"
+          },
+          {
+            "packageName": "nbclient",
+            "version": "0.10.0",
+            "source": "pip",
+            "sha256": "sha256:085d110766ee65dc"
+          },
+          {
+            "packageName": "numpy",
+            "version": "1.26.4",
+            "source": "pip",
+            "sha256": "sha256:652006045d7f09a6"
+          },
+          {
+            "packageName": "openlineage-python",
+            "version": "1.21.0",
+            "source": "pip",
+            "sha256": "sha256:334cae0015661a56"
+          },
+          {
+            "packageName": "pandas",
+            "version": "2.2.2",
+            "source": "pip",
+            "sha256": "sha256:38fc7e060ec1d8dd"
+          },
+          {
+            "packageName": "papermill",
+            "version": "2.6.0",
+            "source": "pip",
+            "sha256": "sha256:da38c1b733a23c83"
+          },
+          {
+            "packageName": "pyarrow",
+            "version": "17.0.0",
+            "source": "conda",
+            "sha256": "sha256:24d0944574c448ef"
+          },
+          {
+            "packageName": "seaborn",
+            "version": "0.13.2",
+            "source": "pip",
+            "sha256": "sha256:d663ed27e8fde641"
+          },
+          {
+            "packageName": "scikit-learn",
+            "version": "1.5.2",
+            "source": "pip",
+            "sha256": "sha256:0ee17e41674cabf3"
+          }
+        ]
+      },
+      "lineageNodes": [
+        {
+          "id": "ln_in_run_4001",
+          "runId": "run_4001",
+          "kind": "dataset_in",
+          "label": "clinical_cohort_v14.parquet",
+          "uri": "s3://noteops-datasets/raw/clinical_cohort_v14.parquet",
+          "sha256": "sha256:72e6c3c82015689f",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "patient_id",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "cohort_label",
+              "dtype": "int64",
+              "nullable": false
+            },
+            {
+              "column": "EGFR",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "TP53",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "PIK3CA",
+              "dtype": "float64",
+              "nullable": true
+            },
+            {
+              "column": "FGFR4",
+              "dtype": "float64",
+              "nullable": true
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 80,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_1",
+          "runId": "run_4001",
+          "kind": "step",
+          "label": "Ingest & Validate Cohort",
+          "uri": "papermill://01_ingest_clinical_cohort.ipynb",
+          "sha256": "sha256:df26368ab0c22033",
+          "status": "succeeded",
+          "position": {
+            "x": 310,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_2",
+          "runId": "run_4001",
+          "kind": "step",
+          "label": "KNN Feature Imputation",
+          "uri": "papermill://02_feature_imputation_knn.ipynb",
+          "sha256": "sha256:51ea563074b5d9c4",
+          "status": "succeeded",
+          "position": {
+            "x": 545,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_step_step_3",
+          "runId": "run_4001",
+          "kind": "step",
+          "label": "Train & Evaluate RF",
+          "uri": "papermill://03_train_evaluate_rf.ipynb",
+          "sha256": "sha256:88c32d846e583530",
+          "status": "succeeded",
+          "position": {
+            "x": 780,
+            "y": 150
+          }
+        },
+        {
+          "id": "ln_out_run_4001",
+          "runId": "run_4001",
+          "kind": "artifact_out",
+          "label": "cohort_eval_report.parquet",
+          "uri": "s3://noteops-artifacts/run_4001/cohort_eval_report.parquet",
+          "sha256": "sha256:5bb9e8afcac48fca",
+          "rowCount": 13485,
+          "schemaSnapshot": [
+            {
+              "column": "feature",
+              "dtype": "string",
+              "nullable": false
+            },
+            {
+              "column": "importance",
+              "dtype": "float64",
+              "nullable": false
+            },
+            {
+              "column": "roc_auc",
+              "dtype": "float64",
+              "nullable": false
+            }
+          ],
+          "status": "succeeded",
+          "position": {
+            "x": 1015,
+            "y": 150
+          }
+        }
+      ],
+      "lineageEdges": [
+        {
+          "id": "le_0_ln_in_run_4001_ln_step_step_1",
+          "runId": "run_4001",
+          "source": "ln_in_run_4001",
+          "target": "ln_step_step_1",
+          "relation": "reads"
+        },
+        {
+          "id": "le_1_ln_step_step_1_ln_step_step_2",
+          "runId": "run_4001",
+          "source": "ln_step_step_1",
+          "target": "ln_step_step_2",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_2_ln_step_step_2_ln_step_step_3",
+          "runId": "run_4001",
+          "source": "ln_step_step_2",
+          "target": "ln_step_step_3",
+          "relation": "depends_on"
+        },
+        {
+          "id": "le_out_ln_step_step_3",
+          "runId": "run_4001",
+          "source": "ln_step_step_3",
+          "target": "ln_out_run_4001",
+          "relation": "produces"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "art_run_4001_1",
+          "runId": "run_4001",
+          "stepId": "step_1",
+          "name": "cleaned_cohort.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4001/step_1",
+          "sha256": "sha256:8f076a3f205ad625",
+          "sizeKb": 842.6
+        },
+        {
+          "id": "art_run_4001_2",
+          "runId": "run_4001",
+          "stepId": "step_2",
+          "name": "imputed_features.parquet",
+          "kind": "table",
+          "path": "s3://noteops-artifacts/run_4001/step_2",
+          "sha256": "sha256:973e5f8fc5b874be",
+          "sizeKb": 842.6,
+          "tablePreview": [
+            {
+              "patient_id": "GENIE-001",
+              "EGFR": 1,
+              "TP53": -1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-002",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": 1,
+              "FGFR4": -1
+            },
+            {
+              "patient_id": "GENIE-003",
+              "EGFR": -1,
+              "TP53": 1,
+              "PIK3CA": -1,
+              "FGFR4": -1
+            }
+          ]
+        },
+        {
+          "id": "art_run_4001_3",
+          "runId": "run_4001",
+          "stepId": "step_3",
+          "name": "rf_evaluation_metrics.json",
+          "kind": "metric",
+          "path": "s3://noteops-artifacts/run_4001/step_3",
+          "sha256": "sha256:5bb9e8afcac48fca",
+          "sizeKb": 14.2,
+          "metrics": {
+            "roc_auc": 0.918,
+            "accuracy": 0.888,
+            "f1_macro": 0.877,
+            "brier_score": 0.0842
+          }
+        },
+        {
+          "id": "art_run_4001_chart",
+          "runId": "run_4001",
+          "stepId": "step_3",
+          "name": "feature_importance_plot.png",
+          "kind": "image",
+          "path": "s3://noteops-artifacts/run_4001/feature_importance_plot.png",
+          "sha256": "sha256:8d8ecb123592fc24",
+          "sizeKb": 118.4
+        }
+      ],
+      "logs": [
+        {
+          "id": "log_run_4001_1",
+          "runId": "run_4001",
+          "stepId": "step_1",
+          "timestamp": "2026-11-18T06:00:00.000Z",
+          "level": "INFO",
+          "message": "Frozen OCI digest sha256:2f6fe2f6f876100e · Papermill 2.6.0 executing 01_ingest_clinical_cohort.ipynb"
+        },
+        {
+          "id": "log_run_4001_2",
+          "runId": "run_4001",
+          "stepId": "step_2",
+          "timestamp": "2026-11-18T06:00:00.000Z",
+          "level": "INFO",
+          "message": "Step 2 completed KNN imputation (k=5, seed=42)."
+        },
+        {
+          "id": "log_run_4001_3",
+          "runId": "run_4001",
+          "stepId": "step_3",
+          "timestamp": "2026-11-18T06:00:00.000Z",
+          "level": "INFO",
+          "message": "Step 3 finished: emitted rf_evaluation_metrics.json and feature_importance_plot.png with SHA-256 hashes."
+        }
+      ]
+    }
+  ],
+  "reproductions": [
+    {
+      "id": "repro_4002_verify",
+      "sourceRunId": "run_4002",
+      "reproducedRunId": "run_4005",
+      "pipelineName": "Clinical Cohort Reproducible ML Pipeline",
+      "status": "reproduced",
+      "startedAt": "2026-11-22T09:15:00.000Z",
+      "completedAt": "2026-11-22T09:15:42.100Z",
+      "fidelityScore": 1,
+      "environmentMatch": true,
+      "dependencyLockMatch": true,
+      "inputDatasetHashMatch": true,
+      "metricDeltas": [
+        {
+          "metric": "roc_auc",
+          "original": 0.926,
+          "reproduced": 0.926,
+          "delta": 0,
+          "withinTolerance": true
+        },
+        {
+          "metric": "accuracy",
+          "original": 0.894,
+          "reproduced": 0.894,
+          "delta": 0,
+          "withinTolerance": true
+        },
+        {
+          "metric": "f1_macro",
+          "original": 0.883,
+          "reproduced": 0.883,
+          "delta": 0,
+          "withinTolerance": true
+        },
+        {
+          "metric": "brier_score",
+          "original": 0.0842,
+          "reproduced": 0.0842,
+          "delta": 0,
+          "withinTolerance": true
+        }
+      ],
+      "tableDiff": {
+        "columns": [
+          "patient_id",
+          "EGFR",
+          "TP53",
+          "PIK3CA",
+          "FGFR4"
+        ],
+        "rows": [
+          {
+            "rowKey": "GENIE-001",
+            "status": "unchanged",
+            "columns": {
+              "patient_id": {
+                "original": "GENIE-001",
+                "reproduced": "GENIE-001",
+                "changed": false
+              },
+              "EGFR": {
+                "original": "1",
+                "reproduced": "1",
+                "changed": false
+              },
+              "TP53": {
+                "original": "-1",
+                "reproduced": "-1",
+                "changed": false
+              },
+              "PIK3CA": {
+                "original": "-1",
+                "reproduced": "-1",
+                "changed": false
+              },
+              "FGFR4": {
+                "original": "-1",
+                "reproduced": "-1",
+                "changed": false
+              }
+            }
+          },
+          {
+            "rowKey": "GENIE-002",
+            "status": "unchanged",
+            "columns": {
+              "patient_id": {
+                "original": "GENIE-002",
+                "reproduced": "GENIE-002",
+                "changed": false
+              },
+              "EGFR": {
+                "original": "-1",
+                "reproduced": "-1",
+                "changed": false
+              },
+              "TP53": {
+                "original": "1",
+                "reproduced": "1",
+                "changed": false
+              },
+              "PIK3CA": {
+                "original": "1",
+                "reproduced": "1",
+                "changed": false
+              },
+              "FGFR4": {
+                "original": "-1",
+                "reproduced": "-1",
+                "changed": false
+              }
+            }
+          },
+          {
+            "rowKey": "GENIE-003",
+            "status": "unchanged",
+            "columns": {
+              "patient_id": {
+                "original": "GENIE-003",
+                "reproduced": "GENIE-003",
+                "changed": false
+              },
+              "EGFR": {
+                "original": "-1",
+                "reproduced": "-1",
+                "changed": false
+              },
+              "TP53": {
+                "original": "1",
+                "reproduced": "1",
+                "changed": false
+              },
+              "PIK3CA": {
+                "original": "-1",
+                "reproduced": "-1",
+                "changed": false
+              },
+              "FGFR4": {
+                "original": "-1",
+                "reproduced": "-1",
+                "changed": false
+              }
+            }
+          }
+        ]
+      },
+      "imageHashes": [
+        {
+          "artifactName": "feature_importance_plot.png",
+          "originalHash": "sha256:d836c3efcdc5b3a1",
+          "reproducedHash": "sha256:d836c3efcdc5b3a1",
+          "pixelSimilarityPct": 100,
+          "exactMatch": true
+        }
+      ],
+      "summaryNote": "Exact historical reproduction verified across frozen OCI digest, dependency lock, dataset hash, tabular outputs, and raster plot hash."
+    }
+  ],
+  "faultTests": [
+    {
+      "id": "fi_nt-1_8bdeff",
+      "code": "NT-1",
+      "title": "Environment Drift Breaks Reproduction",
+      "scenario": "Mutate runtime scikit-learn from 1.5.2 to 1.6.0-rc1 before reproducing historical run_4002.",
+      "injectedFault": "Runtime dependency lock mismatch (pip SHA-256 divergence on scikit-learn).",
+      "expectedSafeBehavior": "Detect digest mismatch before step execution, halt silent drift, fall back to pinned OCI container digest.",
+      "observedDegradedMode": "Degraded preflight alert raised; execution paused on drifted worker and re-routed to immutable image digest.",
+      "recoveryProcedure": "Pull pinned image ghcr.io/noteops/notebook-runner:py312-pinned@sha256:9a4e1c, verify lockfile hash, replay cleanly from checkpoint.",
+      "recoveryTimeSec": 4.6,
+      "stateLossDetected": false,
+      "duplicateWorkDetected": false,
+      "outcome": "pass",
+      "executedAt": "2026-11-23T18:56:41.997Z",
+      "recoveryLogs": [
+        "[FAULT] Injected scikit-learn==1.6.0-rc1 into worker runtime.",
+        "[GUARD] Preflight lockfile verifier detected SHA-256 mismatch against run_4002 manifest.",
+        "[DEGRADED] Refused unverified execution; flagged worker pool as drifted.",
+        "[RECOVERY] Provisioned pinned container digest sha256:9a4e1c02b8e144a0.",
+        "[PASS] Re-executed reproduction cleanly with 100.0% artifact fidelity and zero silent drift."
+      ]
+    },
+    {
+      "id": "fi_nt-2_6c8f4f",
+      "code": "NT-2",
+      "title": "Lost Lineage Metadata Mid-Pipeline",
+      "scenario": "Drop OpenLineage event sink connection between Step 2 (Imputation) and Step 3 (Training).",
+      "injectedFault": "HTTP 503 / connection reset on OpenLineage metadata endpoint during step completion.",
+      "expectedSafeBehavior": "Buffer lineage events in local write-ahead log (WAL), mark run degraded, prevent unmarked publication.",
+      "observedDegradedMode": "Lineage sink unreachable; buffered 4 OpenLineage facet payloads to local durable WAL.",
+      "recoveryProcedure": "Reconnect metadata store, flush WAL idempotently by runId+stepId key, confirm 100% lineage completeness.",
+      "recoveryTimeSec": 3.4,
+      "stateLossDetected": false,
+      "duplicateWorkDetected": false,
+      "outcome": "pass",
+      "executedAt": "2026-11-23T18:56:41.997Z",
+      "recoveryLogs": [
+        "[FAULT] Simulated OpenLineage metadata store outage after Step 2.",
+        "[DEGRADED] Lineage emitter switched to durable WAL buffering; downstream publish held.",
+        "[RECOVERY] Metadata store restored after 2.4s; flushed 4 buffered facets idempotently.",
+        "[PASS] Verified 100% lineage completeness with zero duplicate edges or orphaned artifacts."
+      ]
+    },
+    {
+      "id": "fi_nt-3_539b35",
+      "code": "NT-3",
+      "title": "Hidden Notebook State / Out-of-Order Cells",
+      "scenario": "Execute notebook with out-of-order execution counts ([7], [2], [9]) and deleted variable definition.",
+      "injectedFault": "Notebook contains undeclared global variable mutated interactively before save.",
+      "expectedSafeBehavior": "Execute strictly top-to-bottom in fresh stateless kernel; fail closed with explicit missing-symbol diagnostic.",
+      "observedDegradedMode": "Clean-kernel isolation rejected hidden memory state on cell 3 (NameError: temp_scaler undefined).",
+      "recoveryProcedure": "Promote missing dependency into explicit parameter cell or prior step output; re-validate DAG cleanly.",
+      "recoveryTimeSec": 2.5,
+      "stateLossDetected": false,
+      "duplicateWorkDetected": false,
+      "outcome": "pass",
+      "executedAt": "2026-11-23T18:56:41.997Z",
+      "recoveryLogs": [
+        "[FAULT] Loaded notebook fixture with non-monotonic execution counts [7, 2, 9].",
+        "[GUARD] Papermill isolated kernel reset memory namespace before cell 0.",
+        "[DEGRADED] Caught hidden-state violation deterministically at cell 3; aborted unsafe publish.",
+        "[RECOVERY] Rebound parameter schema and re-ran clean deterministic top-to-bottom pass.",
+        "[PASS] Zero hidden state leaked into pipeline outputs."
+      ]
+    },
+    {
+      "id": "fi_nt-4_54ec84",
+      "code": "NT-4",
+      "title": "Execution Timeout in Pipeline Step",
+      "scenario": "Inject 120s synthetic stall into Step 2 (KNN Imputation) exceeding 30s step timeout SLA.",
+      "injectedFault": "Worker process stall causing step heartbeat expiry.",
+      "expectedSafeBehavior": "Trigger deadline cancellation, preserve Step 1 checkpoint artifact, retry Step 2 idempotently.",
+      "observedDegradedMode": "Step 2 exceeded 30s deadline; pod terminated cleanly without corrupting Step 1 output.",
+      "recoveryProcedure": "Resume DAG from Step 1 verified checkpoint artifact; retry Step 2 on healthy worker with backoff.",
+      "recoveryTimeSec": 6.4,
+      "stateLossDetected": false,
+      "duplicateWorkDetected": false,
+      "outcome": "pass",
+      "executedAt": "2026-11-23T18:56:41.997Z",
+      "recoveryLogs": [
+        "[FAULT] Injected worker hang in step_2 (KNN Imputation).",
+        "[DEGRADED] Timeout watchdog cancelled pod at t=30.0s; Step 1 artifact checksum intact.",
+        "[RECOVERY] Scheduled idempotent retry #1 from Step 1 checkpoint on fresh pod.",
+        "[PASS] Pipeline completed via checkpoint recovery with zero duplicate Step 1 work."
+      ]
+    },
+    {
+      "id": "fi_nt-5_438f35",
+      "code": "NT-5",
+      "title": "Data-Quality Partition Failure",
+      "scenario": "Corrupt 1 partition of input cohort dataset while global aggregate quality remains above threshold.",
+      "injectedFault": "Critical partition P3 contains 42% null genotypes masked by global mean completeness.",
+      "expectedSafeBehavior": "Partition-level schema & quality contract fails closed; quarantine partition, emit degraded alert.",
+      "observedDegradedMode": "Global quality appeared nominal (96.2%), but partition-level validator caught P3 contract breach.",
+      "recoveryProcedure": "Quarantine P3, replay pipeline from last durable clean partition snapshot, verify zero silent data corruption.",
+      "recoveryTimeSec": 5.5,
+      "stateLossDetected": false,
+      "duplicateWorkDetected": false,
+      "outcome": "pass",
+      "executedAt": "2026-11-23T18:56:41.997Z",
+      "recoveryLogs": [
+        "[FAULT] Corrupted critical partition P3 while keeping global null rate < 5%.",
+        "[GUARD] Partition-aware contract check rejected P3 (42.0% missing EGFR/TP53).",
+        "[DEGRADED] Halted model training; quarantined P3 artifact and retained audit evidence.",
+        "[RECOVERY] Reconciled against last verified partition snapshot sha256:4d91a8c3.",
+        "[PASS] Zero unvalidated partition records reached downstream model outputs."
+      ]
+    }
+  ],
+  "kpis": [
+    {
+      "id": "KPI-1",
+      "measure": "Reproduction Fidelity of Historical Runs",
+      "unit": "ratio",
+      "direction": "higher",
+      "baselineValue": 0.84,
+      "targetRule": "≥ O2 + 3 pp (≥ 0.87)",
+      "targetNumeric": 0.87,
+      "currentValue": 0.996,
+      "acceptanceConditions": [
+        "AC-1",
+        "AC-3"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "KPI-2",
+      "measure": "Lineage & Metadata Completeness",
+      "unit": "%",
+      "direction": "higher",
+      "baselineValue": 78,
+      "targetRule": "≥ 95.0% (100% safety items)",
+      "targetNumeric": 95,
+      "currentValue": 99.4,
+      "acceptanceConditions": [
+        "AC-1",
+        "AC-3"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "KPI-3",
+      "measure": "Scheduling Reliability Test Pass Rate",
+      "unit": "%",
+      "direction": "higher",
+      "baselineValue": 91.5,
+      "targetRule": "≥ O2 + 3 pp (≥ 94.5%)",
+      "targetNumeric": 94.5,
+      "currentValue": 98.8,
+      "acceptanceConditions": [
+        "AC-1",
+        "AC-3"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "KPI-4",
+      "measure": "Successful Recovery Rate Under Fault Injection",
+      "unit": "%",
+      "direction": "higher",
+      "baselineValue": 82,
+      "targetRule": "≥ O2 + 3 pp (≥ 85.0%)",
+      "targetNumeric": 85,
+      "currentValue": 100,
+      "acceptanceConditions": [
+        "AC-1",
+        "AC-2",
+        "AC-3"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "KPI-5",
+      "measure": "Service Error Rate at Declared Load",
+      "unit": "%",
+      "direction": "lower",
+      "baselineValue": 1.4,
+      "targetRule": "≤ 0.80 × O2 (≤ 1.12%)",
+      "targetNumeric": 1.12,
+      "currentValue": 0.32,
+      "acceptanceConditions": [
+        "AC-1",
+        "AC-3"
+      ],
+      "status": "pass"
+    },
+    {
+      "id": "KPI-6",
+      "measure": "Request Latency p95",
+      "unit": "ms",
+      "direction": "lower",
+      "baselineValue": 210,
+      "targetRule": "≤ 0.80 × O2 (≤ 168 ms)",
+      "targetNumeric": 168,
+      "currentValue": 114,
+      "acceptanceConditions": [
+        "AC-1",
+        "AC-4"
+      ],
+      "status": "pass"
+    }
+  ],
+  "acceptanceConditions": [
+    {
+      "id": "AC-1",
+      "title": "Representative Operation",
+      "description": "Validate reproducibility and OpenLineage completeness across multi-step scheduled notebook pipelines.",
+      "status": "pass",
+      "evidenceSummary": "3 parameterized notebooks executed in scheduled DAG with 99.4% lineage completeness."
+    },
+    {
+      "id": "AC-2",
+      "title": "Boundary and Failure Operation",
+      "description": "Exercise environment drift breaking reproduction, lost lineage, hidden notebook state, timeouts, and partition faults.",
+      "status": "pass",
+      "evidenceSummary": "All 5 mandatory negative tests (NT-1..NT-5) passed with degraded-mode capture and clean recovery."
+    },
+    {
+      "id": "AC-3",
+      "title": "Independent Acceptance Evidence",
+      "description": "Use a representative workload and independent fault campaign with versioned configuration and workload traces.",
+      "status": "pass",
+      "evidenceSummary": "Versioned fixtures, SHA-256 lock manifests, and historical reproduction diff oracle verified."
+    },
+    {
+      "id": "AC-4",
+      "title": "Frozen Resource Envelope",
+      "description": "Use the same approved versions, workload, hardware limits, and resource budget for reference and final comparisons.",
+      "status": "pass",
+      "evidenceSummary": "Pinned container digest + 4 vCPU / 8 GiB pod envelope enforced across baseline and candidate runs."
+    }
+  ],
+  "settings": {
+    "artifactStorageUri": "s3://noteops-artifacts",
+    "containerRegistry": "ghcr.io/noteops/notebook-runner",
+    "openLineageEndpoint": "http://marquez.noteops.internal:5000/api/v1/lineage",
+    "defaultTimeoutSec": 180,
+    "enforceStrictLockMatch": true,
+    "autoFailClosedOnDrift": true
+  }
+}

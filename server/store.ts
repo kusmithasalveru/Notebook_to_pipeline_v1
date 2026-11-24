@@ -27,13 +27,14 @@ import {
   validatePipelineDag,
 } from './engine.ts';
 import { buildSeedData } from './seedData.ts';
+import { WORKSPACE_FILE, LEGACY_WORKSPACE_FILE } from '../src/constants.ts';
 
 interface StoredUser extends AuthUser {
   passwordHash: string;
   salt: string;
 }
 
-interface Cloud39State {
+interface NoteOpsState {
   users: StoredUser[];
   notebooks: NotebookRecord[];
   pipelines: PipelineDefinition[];
@@ -47,7 +48,8 @@ interface Cloud39State {
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'cloud39_workspace.json');
+const DB_FILE = path.join(DATA_DIR, WORKSPACE_FILE);
+const LEGACY_DB_FILE = path.join(DATA_DIR, LEGACY_WORKSPACE_FILE);
 
 // Session signing key: process.env.SESSION_SECRET with secure ephemeral fallback
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -97,15 +99,15 @@ export function verifyAuthToken(token: string): AuthUser | null {
       email: String(parsed.email),
       name: String(parsed.name),
       role: parsed.role === 'admin' ? 'admin' : 'engineer',
-      affiliation: String(parsed.affiliation || 'CLOUD-39 Engineering'),
+      affiliation: String(parsed.affiliation || 'NoteOps Engineering'),
     };
   } catch {
     return null;
   }
 }
 
-class Cloud39Store {
-  private state: Cloud39State;
+class NoteOpsStore {
+  private state: NoteOpsState;
   private activeTimers = new Map<string, NodeJS.Timeout[]>();
   private wsBroadcaster: ((payload: unknown) => void) | null = null;
 
@@ -117,21 +119,33 @@ class Cloud39Store {
     this.wsBroadcaster = fn;
   }
 
-  private loadState(): Cloud39State {
+  private loadState(): NoteOpsState {
     try {
+      // Try new file first
       if (fs.existsSync(DB_FILE)) {
         const raw = fs.readFileSync(DB_FILE, 'utf8');
-        const parsed = JSON.parse(raw) as Cloud39State;
+        const parsed = JSON.parse(raw) as NoteOpsState;
         if (parsed && Array.isArray(parsed.notebooks) && Array.isArray(parsed.pipelines) && Array.isArray(parsed.runs)) {
           return parsed;
         }
       }
+      // Fallback: migrate from legacy file
+      if (fs.existsSync(LEGACY_DB_FILE)) {
+        const raw = fs.readFileSync(LEGACY_DB_FILE, 'utf8');
+        const parsed = JSON.parse(raw) as NoteOpsState;
+        if (parsed && Array.isArray(parsed.notebooks) && Array.isArray(parsed.pipelines) && Array.isArray(parsed.runs)) {
+          console.log('Migrated workspace from legacy cloud39_workspace.json to noteops_workspace.json');
+          this.persist(parsed);
+          try { fs.unlinkSync(LEGACY_DB_FILE); } catch {}
+          return parsed;
+        }
+      }
     } catch (err) {
-      console.error('Failed to read CLOUD-39 workspace store; reseeding:', err);
+      console.error('Failed to read NoteOps workspace store; reseeding:', err);
     }
 
     const seed = buildSeedData();
-    const fresh: Cloud39State = {
+    const fresh: NoteOpsState = {
       users: [],
       ...seed,
     };
@@ -139,7 +153,7 @@ class Cloud39Store {
     return fresh;
   }
 
-  private persist(next?: Cloud39State) {
+  private persist(next?: NoteOpsState) {
     const target = next || this.state;
     try {
       if (!fs.existsSync(DATA_DIR)) {
@@ -149,7 +163,7 @@ class Cloud39Store {
       fs.writeFileSync(tmp, JSON.stringify(target, null, 2), 'utf8');
       fs.renameSync(tmp, DB_FILE);
     } catch (err) {
-      console.error('Failed to persist CLOUD-39 workspace:', err);
+      console.error('Failed to persist NoteOps workspace:', err);
     }
   }
 
@@ -625,4 +639,4 @@ class Cloud39Store {
   }
 }
 
-export const studioStore = new Cloud39Store();
+export const studioStore = new NoteOpsStore();

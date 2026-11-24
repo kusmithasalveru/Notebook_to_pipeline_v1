@@ -173,7 +173,7 @@ export function SettingsPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-xs font-mono text-slate-500 dark:text-slate-400">
             <Database className="w-3.5 h-3.5 text-[#00D4FF]" />
-            Workspace metadata persisted to server store (data/cloud39_workspace.json)
+            Workspace metadata persisted to server store (data/noteops_workspace.json)
           </div>
 
           <button

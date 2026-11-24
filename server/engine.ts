@@ -18,6 +18,7 @@ import type {
   ReproductionJob,
   TableDiffRow,
 } from '../src/types/domain.ts';
+import { ARTIFACT_URI_PREFIX, CONTAINER_IMAGE_PINNED, DATASET_URI_PREFIX, OPENLINEAGE_ENDPOINT } from '../src/constants.ts';
 
 function sha256Short(input: string): string {
   return `sha256:${crypto.createHash('sha256').update(input).digest('hex').slice(0, 16)}`;
@@ -192,7 +193,7 @@ export function captureEnvironment(params: {
   pipeline: PipelineDefinition;
   gitCommit?: string;
 }): EnvironmentManifest {
-  const image = params.pipeline.environmentSpec.baseImage || 'ghcr.io/cloud39/notebook-runner:py312';
+  const image = params.pipeline.environmentSpec.baseImage || CONTAINER_IMAGE_PINNED;
   return {
     id: `env_${params.runId}`,
     runId: params.runId,
@@ -227,7 +228,7 @@ export function buildRunLineage(params: {
     runId: params.runId,
     kind: 'dataset_in',
     label: params.parameters.cohort_source || 'clinical_cohort_v14.parquet',
-    uri: `s3://cloud39-datasets/raw/${params.parameters.cohort_source || 'clinical_cohort_v14.parquet'}`,
+    uri: `${DATASET_URI_PREFIX}/${params.parameters.cohort_source || 'clinical_cohort_v14.parquet'}`,
     sha256: datasetHash,
     rowCount: 13485,
     schemaSnapshot: [
@@ -279,7 +280,7 @@ export function buildRunLineage(params: {
         runId: params.runId,
         kind: 'artifact_out',
         label: 'cohort_eval_report.parquet',
-        uri: `s3://cloud39-artifacts/${params.runId}/cohort_eval_report.parquet`,
+        uri: `${ARTIFACT_URI_PREFIX}/${params.runId}/cohort_eval_report.parquet`,
         sha256: outHash,
         rowCount: 13485,
         schemaSnapshot: [
@@ -315,7 +316,7 @@ export function buildRunLineage(params: {
             ? 'imputed_features.parquet'
             : 'rf_evaluation_metrics.json',
       kind: idx === 2 ? 'metric' : 'table',
-      path: `s3://cloud39-artifacts/${params.runId}/${step.id}`,
+      path: `${ARTIFACT_URI_PREFIX}/${params.runId}/${step.id}`,
       sha256: outHash,
       sizeKb: idx === 2 ? 14.2 : 842.6,
       metrics:
@@ -348,7 +349,7 @@ export function buildRunLineage(params: {
     stepId: params.pipeline.steps[params.pipeline.steps.length - 1]?.id || 'step_3',
     name: 'feature_importance_plot.png',
     kind: 'image',
-    path: `s3://cloud39-artifacts/${params.runId}/feature_importance_plot.png`,
+    path: `${ARTIFACT_URI_PREFIX}/${params.runId}/feature_importance_plot.png`,
     sha256: chartHash,
     sizeKb: 118.4,
   });
@@ -514,7 +515,7 @@ const NT_SPECS: Record<
     injectedFault: 'Runtime dependency lock mismatch (pip SHA-256 divergence on scikit-learn).',
     expectedSafeBehavior: 'Detect digest mismatch before step execution, halt silent drift, fall back to pinned OCI container digest.',
     observedDegradedMode: 'Degraded preflight alert raised; execution paused on drifted worker and re-routed to immutable image digest.',
-    recoveryProcedure: 'Pull pinned image ghcr.io/cloud39/notebook-runner@sha256:9a4e1c, verify lockfile hash, replay cleanly from checkpoint.',
+    recoveryProcedure: `Pull pinned image ${CONTAINER_IMAGE_PINNED}@sha256:9a4e1c, verify lockfile hash, replay cleanly from checkpoint.`,
     baseRecoverySec: 4.8,
     logs: [
       '[FAULT] Injected scikit-learn==1.6.0-rc1 into worker runtime.',

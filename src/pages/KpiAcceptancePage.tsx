@@ -95,7 +95,7 @@ export function KpiAcceptancePage() {
             KPI Evaluation & Acceptance Conditions (AC-1 – AC-4)
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Quantitative benchmark tracking for CLOUD-39 across reproducibility fidelity, lineage completeness, schedule reliability, and fault recovery.
+            Quantitative benchmark tracking for NoteOps across reproducibility fidelity, lineage completeness, schedule reliability, and fault recovery.
           </p>
         </div>
 
@@ -189,7 +189,7 @@ export function KpiAcceptancePage() {
                     />
                     <Legend wrapperStyle={{ fontSize: '11px', fontFamily: 'JetBrains Mono, monospace' }} />
                     <Bar dataKey="baselineAttainment" name="Baseline (% of Target)" fill="#64748B" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="achievedAttainment" name="CLOUD-39 Achieved (% of Target)" fill="#00D4FF" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="achievedAttainment" name="NoteOps Achieved (% of Target)" fill="#00D4FF" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -226,7 +226,7 @@ export function KpiAcceptancePage() {
           <div className="rounded-xl border border-slate-200 dark:border-[#1E3A5F] bg-white dark:bg-[#132238] overflow-hidden">
             <div className="px-5 py-3.5 border-b border-slate-200 dark:border-[#1E3A5F] flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                CLOUD-39 Key Performance Indicator Matrix
+                NoteOps Key Performance Indicator Matrix
               </h3>
               <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
                 Baseline vs Target vs Live Achieved
@@ -296,7 +296,7 @@ export function KpiAcceptancePage() {
               <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5">
                 <div>
                   <span className="text-slate-500 dark:text-slate-400">Project ID:</span>{' '}
-                  <strong className="font-mono text-slate-900 dark:text-slate-100">CLOUD-39</strong> · Turning Notebooks into Reproducible Scheduled Pipelines
+                  <strong className="font-mono text-slate-900 dark:text-slate-100">NoteOps</strong> · Turning Notebooks into Reproducible Scheduled Pipelines
                 </div>
                 <div>
                   <span className="text-slate-500 dark:text-slate-400">Institution:</span>{' '}

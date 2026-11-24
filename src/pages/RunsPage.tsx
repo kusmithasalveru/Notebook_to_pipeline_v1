@@ -191,17 +191,24 @@ export function RunsPage() {
                     <History className="w-3.5 h-3.5" />
                     <span>Lineage Graph</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedRunId(selectedRun.id);
-                      setActiveSection('reproduction');
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#00A3CC] dark:bg-[#00D4FF] text-white dark:text-[#08131E]"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Reproduce Run</span>
-                  </button>
+                  {selectedRun.status === 'reproduced' ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-[#132238] border border-slate-200 dark:border-[#1E3A5F]">
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Reproduced from {selectedRun.reproductionOfRunId || 'previous run'}</span>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedRunId(selectedRun.id);
+                        setActiveSection('reproduction');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#00A3CC] dark:bg-[#00D4FF] text-white dark:text-[#08131E]"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Reproduce Run</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -222,7 +229,7 @@ export function RunsPage() {
                 </div>
                 <div className="p-4 bg-slate-50 dark:bg-[#0B1624] font-mono text-xs space-y-2 max-h-56 overflow-y-auto">
                   {selectedRun.logs.map((l) => (
-                    <div key={l.id} className="flex items-start gap-2.5 leading-relaxed">
+                    <div key={l.id} className="flex items-start gap-2.5 leading-relaxed log-line-enter">
                       <span className="text-slate-400 shrink-0 tabular-nums">
                         {new Date(l.timestamp).toLocaleTimeString()}
                       </span>

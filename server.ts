@@ -6,6 +6,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import type { AuthUser, NegativeTestCode } from './src/types/domain.ts';
 import { CAPSTONE_DOCUMENTS } from './server/seedData.ts';
 import { studioStore, verifyAuthToken } from './server/store.ts';
+import { APP_NAME, CONTAINER_IMAGE_PINNED } from './src/constants.ts';
 
 declare global {
   namespace Express {
@@ -57,7 +58,7 @@ async function startServer() {
 
   // --- Health & Dashboard Overview ---
   app.get('/api/v1/health', (_req, res) => {
-    res.json({ status: 'ok', service: 'CLOUD-39-Reproducible-Pipeline-Studio', timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', service: `${APP_NAME}-Reproducible-Pipeline-Studio`, timestamp: new Date().toISOString() });
   });
 
   app.get('/api/v1/overview', (_req, res) => {
@@ -163,7 +164,7 @@ async function startServer() {
       name,
       description: typeof description === 'string' ? description : '',
       environmentSpec: environmentSpec || {
-        baseImage: 'ghcr.io/cloud39/notebook-runner:py312-pinned',
+        baseImage: CONTAINER_IMAGE_PINNED,
         pythonVersion: '3.12.7',
         cpuRequest: '4 vCPU',
         memoryRequest: '8 GiB',
@@ -324,9 +325,10 @@ async function startServer() {
     });
   }
 
-  const PORT = 3000;
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`CLOUD-39 Reproducible Pipeline Studio listening on http://0.0.0.0:${PORT}`);
+  const PORT = Number(process.env.PORT) || 3000;
+  const HOST = process.env.HOST || '127.0.0.1';
+  server.listen(PORT, HOST, () => {
+    console.log(`${APP_NAME} Reproducible Pipeline Studio listening on http://${HOST}:${PORT}`);
   });
 }
 

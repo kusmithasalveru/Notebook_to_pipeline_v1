@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { api } from '../../services/api';
 import { useAppStore } from '../../store/useAppStore';
+import { APP_NAME } from '../../constants.ts';
 
 export function AuthModal() {
   const open = useAppStore((s) => s.authModalOpen);
@@ -48,7 +49,7 @@ export function AuthModal() {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 id="auth-modal-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">
-              {mode === 'register' ? 'Create Operator Account' : 'Sign In to CLOUD-39 Studio'}
+              {mode === 'register' ? 'Create Operator Account' : `Sign In to ${APP_NAME} Studio`}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Scrypt-hashed server authentication with in-memory Bearer tokens.
